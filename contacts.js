@@ -13,7 +13,7 @@ export function getContacts() {
   // Migrate: ensure trustLevel exists on all contacts
   let dirty = false
   for (const c of contacts) {
-    if (c.trustLevel === undefined) { c.trustLevel = 0; dirty = true }
+    if (c.trustLevel === undefined) { c.trustLevel = 1; dirty = true }
   }
   if (dirty) saveContacts(contacts)
   return contacts
@@ -35,7 +35,7 @@ export function addContact(npubOrHex, name) {
     pubkey,
     npub: nip19.npubEncode(pubkey),
     name: name || pubkey.slice(0, 8),
-    trustLevel: 0,   // 0=silent, 1=chat, 2=query, 3=exec
+    trustLevel: 1,   // 0=silent, 1=chat, 2=query, 3=exec
     addedAt: Date.now(),
   }
 
