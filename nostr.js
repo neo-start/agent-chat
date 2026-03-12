@@ -187,7 +187,15 @@ export function getAgentProfiles() { return [...agentProfiles.values()] }
 
 function subscribePlazaOnRelay(relay) {
   const since = Math.floor(Date.now() / 1000) - 7 * 24 * 3600
-  relay.subscribe([{ kinds: [1], '#t': ['agent-chat-plaza'], since }], {
+  const filters = [{ kinds: [1], '#t': ['agent-chat-plaza'], since }]
+
+  // Also show recent kind:1 posts from contacts
+  const contactPubkeys = getContacts().map(c => c.pubkey)
+  if (contactPubkeys.length > 0) {
+    filters.push({ kinds: [1], authors: contactPubkeys, since, limit: 100 })
+  }
+
+  relay.subscribe(filters, {
     onevent(event) { handlePlazaEvent(event) }
   })
 }
