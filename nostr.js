@@ -143,9 +143,17 @@ export async function sendMessage(recipientPubkey, content, isAgent = false) {
     content: encrypted,
   }, identity.privkey)
 
-  const results = await Promise.allSettled(relays.map(r => r.publish(event)))
+  // Wrap each publish in try/catch so a synchronously-thrown
+  // SendingOnClosedConnection from nostr-tools doesn't crash the process.
+  const results = await Promise.allSettled(relays.map(r => {
+    try {
+      return r.publish(event)
+    } catch (e) {
+      return Promise.reject(e)
+    }
+  }))
   if (results.every(r => r.status === 'rejected')) {
-    throw new Error('Failed to publish to all relays')
+    throw new Error('Failed to publish to all relays: ' + results[0].reason?.message)
   }
 
   return event
