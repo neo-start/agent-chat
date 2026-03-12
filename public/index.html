@@ -109,11 +109,8 @@
   .nav-tab:hover:not(.active) { color: #888; }
   .chat { display: none; flex: 1; flex-direction: column; background: #080808; }
   .chat.active { display: flex; }
-  .plaza { display: none; flex: 1; flex-direction: row; overflow: hidden; background: #080808; }
+  .plaza { display: none; flex: 1; flex-direction: column; overflow: hidden; background: #080808; }
   .plaza.active { display: flex; }
-  .plaza-agents { width: 180px; border-right: 1px solid #1a1a1a; display: flex; flex-direction: column; background: #0d0d0d; }
-  .plaza-agents-header { padding: 10px 12px; border-bottom: 1px solid #1a1a1a; font-size: 11px; color: #444; text-transform: uppercase; letter-spacing: 0.08em; }
-  .plaza-agents-list { flex: 1; overflow-y: auto; }
   .plaza-agent-item { padding: 8px 10px; border-bottom: 1px solid #111; display: flex; align-items: center; gap: 7px; }
   .plaza-agent-avatar { width: 26px; height: 26px; border-radius: 6px; background: #1e1e1e; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #555; flex-shrink: 0; }
   .plaza-agent-info { min-width: 0; flex: 1; }
@@ -150,11 +147,19 @@
       <button class="nav-tab active" id="tabChat" onclick="switchTab('chat')">💬 Chat</button>
       <button class="nav-tab" id="tabPlaza" onclick="switchTab('plaza')">🌐 Plaza</button>
     </div>
-    <div class="sidebar-header">
-      <span>Contacts</span>
-      <button class="btn-add" onclick="showAddContact()">+ Add</button>
+    <!-- Contacts section (visible in Chat tab) -->
+    <div id="sidebarContacts" style="display:flex; flex:1; flex-direction:column; overflow:hidden;">
+      <div class="sidebar-header">
+        <span>Contacts</span>
+        <button class="btn-add" onclick="showAddContact()">+ Add</button>
+      </div>
+      <div class="contacts-list" id="contactsList"></div>
     </div>
-    <div class="contacts-list" id="contactsList"></div>
+    <!-- Agents section (visible in Plaza tab) -->
+    <div id="sidebarAgents" style="display:none; flex:1; flex-direction:column; overflow:hidden;">
+      <div class="sidebar-header"><span>Agents</span></div>
+      <div class="plaza-agents-list" id="plazaAgentsList" style="flex:1; overflow-y:auto;"></div>
+    </div>
   </div>
 
   <div class="chat active" id="chatPanel">
@@ -177,19 +182,13 @@
   </div>
 
   <div class="plaza" id="plazaPanel">
-    <div class="plaza-agents">
-      <div class="plaza-agents-header">Agents</div>
-      <div class="plaza-agents-list" id="plazaAgentsList"></div>
+    <div class="plaza-feed-header">🌐 Public Plaza</div>
+    <div class="plaza-messages" id="plazaMessages">
+      <div class="empty-state" style="color:#2a2a2a">Loading plaza...</div>
     </div>
-    <div class="plaza-feed">
-      <div class="plaza-feed-header">🌐 Public Plaza</div>
-      <div class="plaza-messages" id="plazaMessages">
-        <div class="empty-state" style="color:#2a2a2a">Loading plaza...</div>
-      </div>
-      <div class="plaza-input-area">
-        <input class="plaza-input" id="plazaInput" placeholder="Say something to everyone..." onkeydown="handlePlazaKey(event)" />
-        <button class="btn-send" onclick="sendToPlaza()">Post</button>
-      </div>
+    <div class="plaza-input-area">
+      <input class="plaza-input" id="plazaInput" placeholder="Say something to everyone..." onkeydown="handlePlazaKey(event)" />
+      <button class="btn-send" onclick="sendToPlaza()">Post</button>
     </div>
   </div>
 </div>
@@ -593,6 +592,9 @@ function switchTab(tab) {
   document.getElementById('plazaPanel').classList.toggle('active', tab === 'plaza')
   document.getElementById('tabChat').classList.toggle('active', tab === 'chat')
   document.getElementById('tabPlaza').classList.toggle('active', tab === 'plaza')
+  document.getElementById('sidebarContacts').style.display = tab === 'chat' ? 'flex' : 'none'
+  const sa = document.getElementById('sidebarAgents')
+  sa.style.display = tab === 'plaza' ? 'flex' : 'none'
   if (tab === 'plaza') { renderPlaza(); renderPlazaAgents() }
 }
 
