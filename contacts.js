@@ -36,6 +36,15 @@ export function addContact(npubOrHex, name) {
   return contact
 }
 
+export function renameContact(pubkey, name) {
+  const contacts = getContacts()
+  const c = contacts.find(c => c.pubkey === pubkey)
+  if (!c) return { error: 'Contact not found' }
+  c.name = name
+  saveContacts(contacts)
+  return c
+}
+
 export function saveContacts(contacts) {
   mkdirSync(CONFIG_DIR, { recursive: true })
   writeFileSync(CONTACTS_FILE, JSON.stringify(contacts, null, 2))

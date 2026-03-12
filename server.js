@@ -4,7 +4,7 @@ import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { getIdentity } from './identity.js'
-import { getContacts, addContact } from './contacts.js'
+import { getContacts, addContact, renameContact } from './contacts.js'
 import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage } from './nostr.js'
 import { getMessages, saveMessage, mergeMessages } from './storage.js'
 
@@ -76,6 +76,20 @@ const server = http.createServer(async (req, res) => {
   const msgMatch = url.pathname.match(/^\/api\/messages\/([0-9a-f]{64})$/)
   if (req.method === 'GET' && msgMatch) {
     return json(res, 200, getMessages(msgMatch[1]))
+  }
+
+  // PATCH /api/contacts/:pubkey  { name }
+  const contactMatch = url.pathname.match(/^\/api\/contacts\/([0-9a-f]{64})$/)
+  if (req.method === 'PATCH' && contactMatch) {
+    try {
+      const body = await readBody(req)
+      const result = renameContact(contactMatch[1], body.name)
+      if (result.error) return json(res, 404, { error: result.error })
+      broadcast({ type: 'contacts', data: getContacts() })
+      return json(res, 200, result)
+    } catch (e) {
+      return json(res, 400, { error: e.message })
+    }
   }
 
   // POST /api/send  { to, content, isAgent? }
@@ -160,6 +174,16 @@ wss.on('connection', (ws) => {
         break
       }
 
+      case 'rename_contact': {
+        const result = renameContact(msg.pubkey, msg.name)
+        if (result.error) {
+          ws.send(JSON.stringify({ type: 'error', data: result.error }))
+        } else {
+          broadcast({ type: 'contacts', data: getContacts() })
+        }
+        break
+      }
+
       case 'send_message': {
         try {
           const isAgent = !!msg.isAgent
@@ -171,8 +195,9 @@ wss.on('connection', (ws) => {
             content: msg.content,
             created_at: event.created_at,
             isAgent,
+            _tempId: msg._tempId,  // echo back so UI can resolve pending state
           }
-          saveMessage(msg.to, sentMsg)
+          saveMessage(msg.to, { id: event.id, from: identity.pubkey, to: msg.to, content: msg.content, created_at: event.created_at, isAgent })
           broadcast({ type: 'message', data: sentMsg })
         } catch (e) {
           ws.send(JSON.stringify({ type: 'error', data: e.message }))
