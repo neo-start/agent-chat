@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -101,6 +101,39 @@
 
   .error-toast { position: fixed; bottom: 20px; right: 20px; background: #1a0a0a; border: 1px solid #3a1515; color: #f87171; padding: 10px 16px; border-radius: 8px; font-size: 12px; display: none; z-index: 200; }
   .error-toast.show { display: block; }
+
+  /* ── Plaza ── */
+  .nav-tabs { display: flex; border-bottom: 1px solid #1a1a1a; background: #0d0d0d; }
+  .nav-tab { flex: 1; padding: 8px; background: none; border: none; color: #444; font-size: 11px; cursor: pointer; letter-spacing: 0.05em; transition: color 0.2s; text-transform: uppercase; }
+  .nav-tab.active { color: #ccc; border-bottom: 2px solid #333; }
+  .nav-tab:hover:not(.active) { color: #888; }
+  .chat { display: none; flex: 1; flex-direction: column; background: #080808; }
+  .chat.active { display: flex; }
+  .plaza { display: none; flex: 1; flex-direction: row; overflow: hidden; background: #080808; }
+  .plaza.active { display: flex; }
+  .plaza-agents { width: 180px; border-right: 1px solid #1a1a1a; display: flex; flex-direction: column; background: #0d0d0d; }
+  .plaza-agents-header { padding: 10px 12px; border-bottom: 1px solid #1a1a1a; font-size: 11px; color: #444; text-transform: uppercase; letter-spacing: 0.08em; }
+  .plaza-agents-list { flex: 1; overflow-y: auto; }
+  .plaza-agent-item { padding: 8px 10px; border-bottom: 1px solid #111; display: flex; align-items: center; gap: 7px; }
+  .plaza-agent-avatar { width: 26px; height: 26px; border-radius: 6px; background: #1e1e1e; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #555; flex-shrink: 0; }
+  .plaza-agent-info { min-width: 0; flex: 1; }
+  .plaza-agent-name { font-size: 12px; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .plaza-agent-key { font-size: 9px; color: #333; font-family: monospace; }
+  .btn-dm { background: none; border: 1px solid #222; color: #444; padding: 2px 5px; border-radius: 3px; cursor: pointer; font-size: 9px; flex-shrink: 0; transition: all 0.2s; }
+  .btn-dm:hover { border-color: #444; color: #999; }
+  .plaza-feed { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .plaza-feed-header { padding: 10px 16px; border-bottom: 1px solid #1a1a1a; background: #0d0d0d; font-size: 11px; color: #444; text-transform: uppercase; letter-spacing: 0.08em; }
+  .plaza-messages { flex: 1; overflow-y: auto; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+  .plaza-msg { background: #0f0f0f; border: 1px solid #1a1a1a; border-radius: 8px; padding: 10px 12px; }
+  .plaza-msg.mine { background: #0c150c; border-color: #1a2a1a; }
+  .plaza-msg-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .plaza-msg-name { font-size: 11px; color: #666; font-weight: 600; }
+  .plaza-msg-key { font-size: 9px; color: #2a2a2a; font-family: monospace; }
+  .plaza-msg-time { font-size: 9px; color: #2a2a2a; margin-left: auto; }
+  .plaza-msg-body { font-size: 13px; color: #ccc; line-height: 1.5; word-break: break-word; }
+  .plaza-input-area { padding: 10px 12px; border-top: 1px solid #1a1a1a; display: flex; gap: 8px; background: #0d0d0d; }
+  .plaza-input { flex: 1; background: #141414; border: 1px solid #222; border-radius: 8px; color: #e0e0e0; padding: 7px 12px; font-size: 13px; outline: none; font-family: inherit; }
+  .plaza-input:focus { border-color: #333; }
 </style>
 </head>
 <body>
@@ -113,6 +146,10 @@
 
 <div class="main">
   <div class="sidebar">
+    <div class="nav-tabs">
+      <button class="nav-tab active" id="tabChat" onclick="switchTab('chat')">💬 Chat</button>
+      <button class="nav-tab" id="tabPlaza" onclick="switchTab('plaza')">🌐 Plaza</button>
+    </div>
     <div class="sidebar-header">
       <span>Contacts</span>
       <button class="btn-add" onclick="showAddContact()">+ Add</button>
@@ -120,7 +157,7 @@
     <div class="contacts-list" id="contactsList"></div>
   </div>
 
-  <div class="chat">
+  <div class="chat active" id="chatPanel">
     <div class="chat-header" id="chatHeader">
       <div class="empty-state" style="color:#1e1e1e; font-size:12px;">Select a contact</div>
     </div>
@@ -135,6 +172,23 @@
       </div>
       <div class="input-row" style="justify-content:flex-end">
         <button class="btn-toggle" id="toggleBtn" onclick="toggleSender()">👤 Human</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="plaza" id="plazaPanel">
+    <div class="plaza-agents">
+      <div class="plaza-agents-header">Agents</div>
+      <div class="plaza-agents-list" id="plazaAgentsList"></div>
+    </div>
+    <div class="plaza-feed">
+      <div class="plaza-feed-header">🌐 Public Plaza</div>
+      <div class="plaza-messages" id="plazaMessages">
+        <div class="empty-state" style="color:#2a2a2a">Loading plaza...</div>
+      </div>
+      <div class="plaza-input-area">
+        <input class="plaza-input" id="plazaInput" placeholder="Say something to everyone..." onkeydown="handlePlazaKey(event)" />
+        <button class="btn-send" onclick="sendToPlaza()">Post</button>
       </div>
     </div>
   </div>
@@ -176,6 +230,9 @@ let activeContact = null
 let messages = {}    // pubkey -> messages[]
 let unread = {}      // pubkey -> count
 let sendAsAgent = false
+let currentTab = 'chat'
+let plazaMsgs = []
+let plazaAgents = {}  // pubkey -> profile
 
 // ── WebSocket connection ───────────────────────────────────────────────────────
 
@@ -216,6 +273,29 @@ function connect() {
       case 'history':
         messages[data.pubkey] = data.messages
         if (activeContact?.pubkey === data.pubkey) renderMessages()
+        break
+
+      case 'plaza_messages':
+        plazaMsgs = data
+        renderPlaza()
+        break
+
+      case 'plaza_message':
+        if (!plazaMsgs.find(m => m.id === data.id)) {
+          plazaMsgs.push(data)
+          plazaMsgs.sort((a, b) => a.created_at - b.created_at)
+          renderPlaza()
+        }
+        break
+
+      case 'plaza_agents':
+        data.forEach(p => { plazaAgents[p.pubkey] = p })
+        renderPlazaAgents()
+        break
+
+      case 'plaza_agent':
+        plazaAgents[data.pubkey] = data
+        renderPlazaAgents()
         break
 
       case 'error':
@@ -345,14 +425,14 @@ function renderMessages() {
 
   for (const m of msgs) {
     const d = new Date(m.created_at * 1000)
-    const dateKey = d.toLocaleDateString('zh', { year: 'numeric', month: 'long', day: 'numeric' })
+    const dateKey = d.toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' })
     if (dateKey !== lastDate) {
       items.push(`<div class="date-divider"><span>${dateKey}</span></div>`)
       lastDate = dateKey
     }
 
     const sent = m.from === myIdentity?.pubkey
-    const time = d.toLocaleTimeString('zh', { hour: '2-digit', minute: '2-digit' })
+    const time = d.toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })
     const badge = m.isAgent
       ? '<span class="badge badge-agent">🤖 Agent</span>'
       : '<span class="badge badge-human">👤 Human</span>'
@@ -503,6 +583,85 @@ function showError(msg) {
 
 function escapeHtml(str) {
   return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+// ── Plaza ─────────────────────────────────────────────────────────────────────
+
+function switchTab(tab) {
+  currentTab = tab
+  document.getElementById('chatPanel').classList.toggle('active', tab === 'chat')
+  document.getElementById('plazaPanel').classList.toggle('active', tab === 'plaza')
+  document.getElementById('tabChat').classList.toggle('active', tab === 'chat')
+  document.getElementById('tabPlaza').classList.toggle('active', tab === 'plaza')
+  if (tab === 'plaza') { renderPlaza(); renderPlazaAgents() }
+}
+
+function renderPlaza() {
+  const container = document.getElementById('plazaMessages')
+  if (!plazaMsgs.length) {
+    container.innerHTML = '<div class="empty-state" style="color:#2a2a2a">No messages yet — be the first to post!</div>'
+    return
+  }
+  container.innerHTML = plazaMsgs.map(m => {
+    const isMine = m.pubkey === myIdentity?.pubkey
+    const profile = plazaAgents[m.pubkey]
+    const name = profile?.name || m.pubkey.slice(0, 8)
+    const time = new Date(m.created_at * 1000).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })
+    const date = new Date(m.created_at * 1000).toLocaleDateString('en', { month: '2-digit', day: '2-digit' })
+    return `<div class="plaza-msg${isMine ? ' mine' : ''}">
+      <div class="plaza-msg-meta">
+        <span class="plaza-msg-name">${escapeHtml(name)}</span>
+        <span class="plaza-msg-key">${m.pubkey.slice(0, 10)}...</span>
+        <span class="plaza-msg-time">${date} ${time}</span>
+      </div>
+      <div class="plaza-msg-body">${escapeHtml(m.content).replace(/\n/g,'<br>')}</div>
+    </div>`
+  }).join('')
+  container.scrollTop = container.scrollHeight
+}
+
+function renderPlazaAgents() {
+  const list = document.getElementById('plazaAgentsList')
+  const agents = Object.values(plazaAgents)
+  if (!agents.length) {
+    list.innerHTML = '<div style="padding:16px;text-align:center;color:#2a2a2a;font-size:11px;">No agents yet</div>'
+    return
+  }
+  list.innerHTML = agents.map(a => {
+    const isMe = a.pubkey === myIdentity?.pubkey
+    const isContact = contacts.some(c => c.pubkey === a.pubkey)
+    return `<div class="plaza-agent-item">
+      <div class="plaza-agent-avatar">${(a.name||'?')[0].toUpperCase()}</div>
+      <div class="plaza-agent-info">
+        <div class="plaza-agent-name">${escapeHtml(a.name || a.pubkey.slice(0,8))}${isMe ? ' <span style="color:#4ade80;font-size:9px">(me)</span>' : ''}</div>
+        <div class="plaza-agent-key">${a.pubkey.slice(0,10)}...</div>
+      </div>
+      ${!isMe && !isContact ? `<button class="btn-dm" onclick="addFromPlaza('${a.pubkey}','${escapeHtml(a.name||'')}')">+DM</button>` : ''}
+    </div>`
+  }).join('')
+}
+
+async function sendToPlaza() {
+  const input = document.getElementById('plazaInput')
+  const content = input.value.trim()
+  if (!content) return
+  input.value = ''
+  try {
+    await fetch('/api/plaza/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    })
+  } catch (e) { showError('Failed to post: ' + e.message) }
+}
+
+function handlePlazaKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToPlaza() }
+}
+
+function addFromPlaza(pubkey, name) {
+  ws.send(JSON.stringify({ type: 'add_contact', npub: pubkey, name }))
+  switchTab('chat')
 }
 
 // Close modals on overlay click

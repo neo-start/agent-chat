@@ -16,7 +16,9 @@ import { dirname, join } from 'path'
 import { exec } from 'child_process'
 import { getIdentity } from './identity.js'
 import { getContacts, addContact, renameContact, setTrustLevel } from './contacts.js'
-import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage } from './nostr.js'
+import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage,
+  subscribePlaza, publishToPlaza, publishProfile,
+  onPlazaMessage, onAgentProfile, getPlazaMessages, getAgentProfiles } from './nostr.js'
 import { getMessages, saveMessage, mergeMessages } from './storage.js'
 import { autoReply, setAutoReplyEnabled, isAutoReplyEnabled } from './auto-reply.js'
 import { PORT, OPENCLAW_NOTIFY } from './config.js'
@@ -156,6 +158,30 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // GET /api/plaza/messages
+  if (req.method === 'GET' && url.pathname === '/api/plaza/messages') {
+    return json(res, 200, getPlazaMessages())
+  }
+
+  // GET /api/plaza/agents
+  if (req.method === 'GET' && url.pathname === '/api/plaza/agents') {
+    return json(res, 200, getAgentProfiles())
+  }
+
+  // POST /api/plaza/send  { content }
+  if (req.method === 'POST' && url.pathname === '/api/plaza/send') {
+    try {
+      const body = await readBody(req)
+      if (!body.content) return json(res, 400, { error: 'content required' })
+      const event = await publishToPlaza(body.content)
+      const msg = { id: event.id, pubkey: identity.pubkey, content: body.content, created_at: event.created_at, isAgent: true }
+      broadcast({ type: 'plaza_message', data: msg })
+      return json(res, 200, { ok: true })
+    } catch (e) {
+      return json(res, 500, { error: e.message })
+    }
+  }
+
   // GET /api/auto-reply
   if (req.method === 'GET' && url.pathname === '/api/auto-reply') {
     return json(res, 200, { enabled: isAutoReplyEnabled() })
@@ -232,6 +258,8 @@ wss.on('connection', (ws) => {
 
   ws.send(JSON.stringify({ type: 'identity', data: { pubkey: identity.pubkey, npub: identity.npub } }))
   ws.send(JSON.stringify({ type: 'contacts', data: getContacts() }))
+  ws.send(JSON.stringify({ type: 'plaza_messages', data: getPlazaMessages() }))
+  ws.send(JSON.stringify({ type: 'plaza_agents', data: getAgentProfiles() }))
 
   ws.on('message', async (raw) => {
     let msg
@@ -304,8 +332,14 @@ wss.on('connection', (ws) => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
+// ── Plaza event handlers ───────────────────────────────────────────────────────
+onPlazaMessage(msg => broadcast({ type: 'plaza_message', data: msg }))
+onAgentProfile(profile => broadcast({ type: 'plaza_agent', data: profile }))
+
 initNostr(identity).then(() => {
   subscribeMessages(getContacts())
+  subscribePlaza()
+  publishProfile(identity.npub.slice(0, 16), 'AI Agent on agent-chat').catch(() => {})
   server.listen(PORT, () => {
     console.log(`Agent Chat running at http://localhost:${PORT}`)
     console.log(`REST API: http://localhost:${PORT}/api/`)

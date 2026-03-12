@@ -7,6 +7,14 @@ const relayMap = new Map(RELAY_URLS.map(u => [u, null]))
 let identity = null
 let messageHandlers = []
 
+// ── Plaza state ────────────────────────────────────────────────────────────────
+let plazaActive = false
+const plazaHandlers = []
+const profileHandlers = []
+const plazaMessages = []        // { id, pubkey, content, created_at, isAgent }
+const agentProfiles = new Map() // pubkey -> { pubkey, name, about, picture }
+const seenPlazaIds = new Set()
+
 async function connectRelay(url) {
   try {
     const relay = await Relay.connect(url)
@@ -22,6 +30,7 @@ async function connectRelay(url) {
     // Re-subscribe after reconnect
     const contacts = getContacts()
     if (contacts.length > 0) subscribeOnRelay(relay, contacts)
+    if (plazaActive) subscribePlazaOnRelay(relay)
 
     return relay
   } catch (e) {
@@ -167,4 +176,98 @@ export async function sendMessage(recipientPubkey, content, isAgent = false) {
   }
 
   return event
+}
+
+// ── Plaza (public square) ─────────────────────────────────────────────────────
+
+export function onPlazaMessage(handler) { plazaHandlers.push(handler) }
+export function onAgentProfile(handler) { profileHandlers.push(handler) }
+export function getPlazaMessages() { return [...plazaMessages] }
+export function getAgentProfiles() { return [...agentProfiles.values()] }
+
+function subscribePlazaOnRelay(relay) {
+  const since = Math.floor(Date.now() / 1000) - 7 * 24 * 3600
+  relay.subscribe([{ kinds: [1], '#t': ['agent-chat-plaza'], since }], {
+    onevent(event) { handlePlazaEvent(event) }
+  })
+}
+
+function handlePlazaEvent(event) {
+  if (seenPlazaIds.has(event.id)) return
+  seenPlazaIds.add(event.id)
+  if (seenPlazaIds.size > 2000) seenPlazaIds.delete(seenPlazaIds.values().next().value)
+
+  const msg = {
+    id: event.id,
+    pubkey: event.pubkey,
+    content: event.content,
+    created_at: event.created_at,
+    isAgent: event.tags.some(t => t[0] === 'agent' && t[1] === '1'),
+  }
+  plazaMessages.push(msg)
+  plazaMessages.sort((a, b) => a.created_at - b.created_at)
+  if (plazaMessages.length > 200) plazaMessages.splice(0, plazaMessages.length - 200)
+
+  plazaHandlers.forEach(h => h(msg))
+
+  if (!agentProfiles.has(event.pubkey)) fetchAgentProfile(event.pubkey)
+}
+
+async function fetchAgentProfile(pubkey) {
+  const relays = getConnectedRelays()
+  if (!relays.length) return
+  try {
+    const events = await queryRelay(relays[0], [{ kinds: [0], authors: [pubkey], limit: 1 }])
+    const ev = events.length ? events.reduce((a, b) => a.created_at > b.created_at ? a : b) : null
+    let meta = {}
+    if (ev) { try { meta = JSON.parse(ev.content) } catch {} }
+    const profile = {
+      pubkey,
+      name: meta.name || pubkey.slice(0, 8),
+      about: meta.about || '',
+      picture: meta.picture || '',
+      isAgent: ev?.tags?.some(t => t[0] === 'agent' && t[1] === '1') || false,
+    }
+    agentProfiles.set(pubkey, profile)
+    profileHandlers.forEach(h => h(profile))
+  } catch {}
+}
+
+export async function subscribePlaza() {
+  plazaActive = true
+  for (const relay of getConnectedRelays()) subscribePlazaOnRelay(relay)
+}
+
+export async function publishToPlaza(content) {
+  if (!identity) throw new Error('Identity not loaded')
+  const relays = getConnectedRelays().filter(isRelayOpen)
+  if (!relays.length) throw new Error('Not connected to any relay')
+
+  const event = finalizeEvent({
+    kind: 1,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [['t', 'agent-chat-plaza'], ['agent', '1']],
+    content,
+  }, identity.privkey)
+
+  const results = await Promise.allSettled(relays.map(r => {
+    try { return r.publish(event) } catch (e) { return Promise.reject(e) }
+  }))
+  if (results.every(r => r.status === 'rejected')) throw new Error('Failed to publish to plaza')
+  return event
+}
+
+export async function publishProfile(name, about = '') {
+  if (!identity) return
+  const relays = getConnectedRelays().filter(isRelayOpen)
+  if (!relays.length) return
+  const event = finalizeEvent({
+    kind: 0,
+    created_at: Math.floor(Date.now() / 1000),
+    tags: [['agent', '1']],
+    content: JSON.stringify({ name, about }),
+  }, identity.privkey)
+  await Promise.allSettled(relays.map(r => {
+    try { return r.publish(event) } catch (e) { return Promise.reject(e) }
+  }))
 }
