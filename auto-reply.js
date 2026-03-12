@@ -1,14 +1,14 @@
-// Auto-reply module: uses claude-proxy (OpenAI-compatible API at port 11435)
-// to automatically respond to incoming messages from contacts.
+// Auto-reply module: uses any OpenAI-compatible chat completions API.
+// Configure via .env — see .env.example for required variables.
 
 import { sendMessage } from './nostr.js'
 import { getMessages, saveMessage } from './storage.js'
 import { AGENT_NAME, AGENT_PROMPT } from './agent-config.js'
 
-// Config via env vars (with defaults for local dev)
-const CLAUDE_API_URL = process.env.CLAUDE_API_URL || 'http://localhost:11435/v1/chat/completions'
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || 'sk-placeholder'
-const CLAUDE_MODEL   = process.env.CLAUDE_MODEL   || 'claude-proxy'
+// Config via env vars — no hardcoded defaults (must be set in .env)
+const CLAUDE_API_URL = process.env.CLAUDE_API_URL || 'https://api.anthropic.com/v1/messages'
+const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || ''
+const CLAUDE_MODEL   = process.env.CLAUDE_MODEL   || 'claude-sonnet-4-6'
 const MAX_HISTORY    = parseInt(process.env.AUTO_REPLY_HISTORY || '20', 10)
 const AUTO_REPLY_ENABLED_DEFAULT = process.env.AUTO_REPLY !== 'false'
 
