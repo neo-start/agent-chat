@@ -153,7 +153,18 @@ function broadcast(data) {
   clients.forEach(ws => { if (ws.readyState === 1) ws.send(msg) })
 }
 
+const seenEventIds = new Set()
+
 onMessage(msg => {
+  // Deduplicate across relays
+  if (seenEventIds.has(msg.id)) return
+  seenEventIds.add(msg.id)
+  // Prevent unbounded growth
+  if (seenEventIds.size > 1000) {
+    const first = seenEventIds.values().next().value
+    seenEventIds.delete(first)
+  }
+
   const contactPubkey = msg.from === identity.pubkey ? msg.to : msg.from
   saveMessage(contactPubkey, msg)
   broadcast({ type: 'message', data: msg })
@@ -162,7 +173,6 @@ onMessage(msg => {
   if (msg.from !== identity.pubkey) {
     const contact = getContacts().find(c => c.pubkey === msg.from)
     fireWebhook(msg, contact)
-    // Wake up OpenClaw agent
     const name = contact?.name || msg.from.slice(0, 8)
     const preview = msg.content.length > 60 ? msg.content.slice(0, 60) + '...' : msg.content
     exec(`openclaw system event --text "agent-chat: ${name} 说：${preview}" --mode now`, () => {})
