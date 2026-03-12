@@ -8,6 +8,7 @@ import { getIdentity } from './identity.js'
 import { getContacts, addContact, renameContact } from './contacts.js'
 import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage } from './nostr.js'
 import { getMessages, saveMessage, mergeMessages } from './storage.js'
+import { autoReply, setAutoReplyEnabled, isAutoReplyEnabled } from './auto-reply.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = 3737
@@ -139,6 +140,22 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // GET /api/auto-reply
+  if (req.method === 'GET' && url.pathname === '/api/auto-reply') {
+    return json(res, 200, { enabled: isAutoReplyEnabled() })
+  }
+
+  // POST /api/auto-reply  { enabled: bool }
+  if (req.method === 'POST' && url.pathname === '/api/auto-reply') {
+    try {
+      const body = await readBody(req)
+      setAutoReplyEnabled(!!body.enabled)
+      return json(res, 200, { enabled: isAutoReplyEnabled() })
+    } catch (e) {
+      return json(res, 400, { error: e.message })
+    }
+  }
+
   res.writeHead(404)
   res.end('Not found')
 })
@@ -176,6 +193,11 @@ onMessage(msg => {
     const name = contact?.name || msg.from.slice(0, 8)
     const preview = msg.content.length > 60 ? msg.content.slice(0, 60) + '...' : msg.content
     exec(`openclaw system event --text "agent-chat: ${name} 说：${preview}" --mode now`, () => {})
+
+    // Auto-reply via Claude
+    autoReply(msg, identity, contact).then(sentMsg => {
+      if (sentMsg) broadcast({ type: 'message', data: sentMsg })
+    })
   }
 })
 
