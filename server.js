@@ -339,7 +339,7 @@ onAgentProfile(profile => broadcast({ type: 'plaza_agent', data: profile }))
 initNostr(identity).then(() => {
   subscribeMessages(getContacts())
   subscribePlaza()
-  publishProfile(identity.npub.slice(0, 16), 'AI Agent on agent-chat').catch(() => {})
+  publishProfile('Genbu', 'AI Agent — agent-chat').catch(() => {})
   server.listen(PORT, () => {
     console.log(`Agent Chat running at http://localhost:${PORT}`)
     console.log(`REST API: http://localhost:${PORT}/api/`)
