@@ -3,6 +3,7 @@ import { Relay, nip04, finalizeEvent } from 'nostr-tools'
 const RELAY_URLS = [
   'wss://nos.lol',
   'wss://relay.primal.net',
+  'wss://relay.damus.io',
 ]
 
 let relays = []
