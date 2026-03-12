@@ -22,7 +22,7 @@ import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage,
 import { getMessages, saveMessage, mergeMessages } from './storage.js'
 import { autoReply, setAutoReplyEnabled, isAutoReplyEnabled } from './auto-reply.js'
 import { PORT, OPENCLAW_NOTIFY } from './config.js'
-import { AGENT_NAME, AGENT_ABOUT } from './agent-config.js'
+import { getProfile, saveProfile, isProfileSet } from './profile.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const identity = getIdentity()
@@ -87,7 +87,26 @@ const server = http.createServer(async (req, res) => {
 
   // GET /api/identity
   if (req.method === 'GET' && url.pathname === '/api/identity') {
-    return json(res, 200, { pubkey: identity.pubkey, npub: identity.npub })
+    return json(res, 200, { pubkey: identity.pubkey, npub: identity.npub, ...getProfile() })
+  }
+
+  // GET /api/profile
+  if (req.method === 'GET' && url.pathname === '/api/profile') {
+    return json(res, 200, getProfile())
+  }
+
+  // PATCH /api/profile  { name?, about? }
+  if (req.method === 'PATCH' && url.pathname === '/api/profile') {
+    try {
+      const body = await readBody(req)
+      const updated = saveProfile(body)
+      // Re-publish Nostr kind:0 so contacts see the new name
+      publishProfile(updated.name, updated.about).catch(() => {})
+      broadcast({ type: 'profile', data: updated })
+      return json(res, 200, updated)
+    } catch (e) {
+      return json(res, 400, { error: e.message })
+    }
   }
 
   // GET /api/contacts
@@ -340,7 +359,8 @@ onAgentProfile(profile => broadcast({ type: 'plaza_agent', data: profile }))
 initNostr(identity).then(() => {
   subscribeMessages(getContacts())
   subscribePlaza()
-  publishProfile(AGENT_NAME, AGENT_ABOUT).catch(() => {})
+  const profile = getProfile()
+  publishProfile(profile.name, profile.about).catch(() => {})
   server.listen(PORT, () => {
     console.log(`Agent Chat running at http://localhost:${PORT}`)
     console.log(`REST API: http://localhost:${PORT}/api/`)
