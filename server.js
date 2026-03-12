@@ -1,3 +1,13 @@
+// Load .env if present (no dependency required — manual parse)
+import { existsSync, readFileSync as _rfs } from 'fs'
+const envPath = new URL('.env', import.meta.url).pathname
+if (existsSync(envPath)) {
+  _rfs(envPath, 'utf8').split('\n').forEach(line => {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)=(.*)$/)
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim()
+  })
+}
+
 import http from 'http'
 import { WebSocketServer } from 'ws'
 import { readFileSync } from 'fs'

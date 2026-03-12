@@ -4,11 +4,14 @@
 import { sendMessage } from './nostr.js'
 import { getMessages, saveMessage } from './storage.js'
 
-const CLAUDE_PROXY_URL = 'http://localhost:11435/v1/chat/completions'
-const MODEL = 'claude-proxy'
-const MAX_HISTORY = 20  // max messages to include as context
+// Config via env vars (with defaults for local dev)
+const CLAUDE_API_URL = process.env.CLAUDE_API_URL || 'http://localhost:11435/v1/chat/completions'
+const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || 'sk-placeholder'
+const CLAUDE_MODEL   = process.env.CLAUDE_MODEL   || 'claude-proxy'
+const MAX_HISTORY    = parseInt(process.env.AUTO_REPLY_HISTORY || '20', 10)
+const AUTO_REPLY_ENABLED_DEFAULT = process.env.AUTO_REPLY !== 'false'
 
-let enabled = true
+let enabled = AUTO_REPLY_ENABLED_DEFAULT
 
 export function setAutoReplyEnabled(val) {
   enabled = val
@@ -40,11 +43,14 @@ export async function autoReply(incomingMsg, identity, contact) {
   try {
     const history = buildHistory(incomingMsg.from, identity)
 
-    const response = await fetch(CLAUDE_PROXY_URL, {
+    const response = await fetch(CLAUDE_API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CLAUDE_API_KEY}`,
+      },
       body: JSON.stringify({
-        model: MODEL,
+        model: CLAUDE_MODEL,
         messages: [
           {
             role: 'system',
