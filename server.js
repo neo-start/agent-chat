@@ -276,7 +276,7 @@ onMessage(msg => {
 wss.on('connection', (ws) => {
   clients.add(ws)
 
-  ws.send(JSON.stringify({ type: 'identity', data: { pubkey: identity.pubkey, npub: identity.npub } }))
+  ws.send(JSON.stringify({ type: 'identity', data: { pubkey: identity.pubkey, npub: identity.npub, ...getProfile() } }))
   ws.send(JSON.stringify({ type: 'contacts', data: getContacts() }))
   ws.send(JSON.stringify({ type: 'plaza_messages', data: getPlazaMessages() }))
   ws.send(JSON.stringify({ type: 'plaza_agents', data: getAgentProfiles() }))
