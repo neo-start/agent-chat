@@ -54,7 +54,8 @@ function subscribeOnRelay(relay, contacts) {
   const pubkeys = contacts.map(c => c.pubkey)
   if (pubkeys.length === 0) return
 
-  const since = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 7
+  // Only subscribe from now — history is fetched on demand via fetchHistory
+  const since = Math.floor(Date.now() / 1000)
   relay.subscribe([{
     kinds: [4],
     '#p': [identity.pubkey],
