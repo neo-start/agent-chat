@@ -6,6 +6,7 @@ import { dirname, join } from 'path'
 import { getIdentity } from './identity.js'
 import { getContacts, addContact } from './contacts.js'
 import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage } from './nostr.js'
+import { getMessages, saveMessage, mergeMessages } from './storage.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = 3737
@@ -37,8 +38,10 @@ function broadcast(data) {
   })
 }
 
-// Forward incoming Nostr messages to all browser clients
+// Forward incoming Nostr messages to all browser clients and persist
 onMessage(msg => {
+  const contactPubkey = msg.from === identity.pubkey ? msg.to : msg.from
+  saveMessage(contactPubkey, msg)
   broadcast({ type: 'message', data: msg })
 })
 
@@ -69,7 +72,6 @@ wss.on('connection', (ws) => {
             ws.send(JSON.stringify({ type: 'error', data: contact.error }))
           } else {
             broadcast({ type: 'contacts', data: getContacts() })
-            // Subscribe to new contact's messages
             subscribeMessages(getContacts())
           }
         } catch (e) {
@@ -80,8 +82,15 @@ wss.on('connection', (ws) => {
 
       case 'load_history': {
         try {
-          const history = await fetchHistory(msg.pubkey)
-          ws.send(JSON.stringify({ type: 'history', data: { pubkey: msg.pubkey, messages: history } }))
+          // Return local cache immediately
+          const cached = getMessages(msg.pubkey)
+          ws.send(JSON.stringify({ type: 'history', data: { pubkey: msg.pubkey, messages: cached } }))
+
+          // Then fetch from relay and merge
+          const remote = await fetchHistory(msg.pubkey)
+          mergeMessages(msg.pubkey, remote)
+          const merged = getMessages(msg.pubkey)
+          ws.send(JSON.stringify({ type: 'history', data: { pubkey: msg.pubkey, messages: merged } }))
         } catch (e) {
           ws.send(JSON.stringify({ type: 'error', data: e.message }))
         }
@@ -91,17 +100,15 @@ wss.on('connection', (ws) => {
       case 'send_message': {
         try {
           const event = await sendMessage(msg.to, msg.content)
-          // Echo back as a sent message
-          broadcast({
-            type: 'message',
-            data: {
-              id: event.id,
-              from: identity.pubkey,
-              to: msg.to,
-              content: msg.content,
-              created_at: event.created_at,
-            }
-          })
+          const sentMsg = {
+            id: event.id,
+            from: identity.pubkey,
+            to: msg.to,
+            content: msg.content,
+            created_at: event.created_at,
+          }
+          saveMessage(msg.to, sentMsg)
+          broadcast({ type: 'message', data: sentMsg })
         } catch (e) {
           ws.send(JSON.stringify({ type: 'error', data: e.message }))
         }
