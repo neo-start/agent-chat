@@ -14,8 +14,6 @@ const PORT = 3737
 const identity = getIdentity()
 console.log('Your public key (npub):', identity.npub)
 
-initNostr(identity)
-
 // HTTP server
 const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
@@ -115,9 +113,10 @@ wss.on('connection', (ws) => {
   ws.on('close', () => clients.delete(ws))
 })
 
-// Start subscriptions
-subscribeMessages(getContacts())
-
-server.listen(PORT, () => {
-  console.log(`Agent Chat running at http://localhost:${PORT}`)
+// Init nostr then start server
+initNostr(identity).then(() => {
+  subscribeMessages(getContacts())
+  server.listen(PORT, () => {
+    console.log(`Agent Chat running at http://localhost:${PORT}`)
+  })
 })

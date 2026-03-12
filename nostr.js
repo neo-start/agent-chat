@@ -1,46 +1,52 @@
-import { SimplePool, nip04, kinds } from 'nostr-tools'
-import { finalizeEvent } from 'nostr-tools'
+import { Relay, nip04, finalizeEvent } from 'nostr-tools'
 
-const RELAYS = [
-  'wss://relay.damus.io',
+const RELAY_URLS = [
   'wss://nos.lol',
+  'wss://relay.primal.net',
 ]
 
-let pool = null
+let relays = []
 let identity = null
 let messageHandlers = []
 
-export function initNostr(id) {
+export async function initNostr(id) {
   identity = id
-  pool = new SimplePool()
-  return pool
+  for (const url of RELAY_URLS) {
+    try {
+      const relay = await Relay.connect(url)
+      relays.push(relay)
+      console.log('Connected to', url)
+    } catch (e) {
+      console.warn('Failed to connect to', url, e.message)
+    }
+  }
 }
 
 export function onMessage(handler) {
   messageHandlers.push(handler)
 }
 
-export async function subscribeMessages(contacts) {
-  if (!pool || !identity) return
-
+export function subscribeMessages(contacts) {
+  if (!identity || relays.length === 0) return
   const pubkeys = contacts.map(c => c.pubkey)
   if (pubkeys.length === 0) return
 
-  // Subscribe to incoming DMs
-  const sub = pool.subscribeMany(RELAYS, [
-    {
-      kinds: [kinds.EncryptedDirectMessage],
-      '#p': [identity.pubkey],
-      authors: pubkeys,
-      since: Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 7, // last 7 days
-    }
-  ], {
-    onevent(event) {
-      decryptAndEmit(event)
-    }
-  })
+  const since = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 7
 
-  return sub
+  for (const relay of relays) {
+    relay.subscribe([
+      {
+        kinds: [4],
+        '#p': [identity.pubkey],
+        authors: pubkeys,
+        since,
+      }
+    ], {
+      onevent(event) {
+        decryptAndEmit(event)
+      }
+    })
+  }
 }
 
 async function decryptAndEmit(event) {
@@ -55,22 +61,34 @@ async function decryptAndEmit(event) {
     }
     messageHandlers.forEach(h => h(msg))
   } catch (e) {
-    // ignore decrypt errors (messages not meant for us, etc.)
+    // ignore decrypt errors
   }
 }
 
-export async function fetchHistory(contactPubkey) {
-  if (!pool || !identity) return []
+async function queryRelay(relay, filters) {
+  return new Promise((resolve) => {
+    const events = []
+    const sub = relay.subscribe(filters, {
+      onevent(e) { events.push(e) },
+      oneose() { resolve(events) }
+    })
+    setTimeout(() => resolve(events), 5000)
+  })
+}
 
-  const events = await pool.querySync(RELAYS, [
+export async function fetchHistory(contactPubkey) {
+  if (!identity || relays.length === 0) return []
+
+  const relay = relays[0]
+  const events = await queryRelay(relay, [
     {
-      kinds: [kinds.EncryptedDirectMessage],
+      kinds: [4],
       authors: [identity.pubkey],
       '#p': [contactPubkey],
       limit: 50,
     },
     {
-      kinds: [kinds.EncryptedDirectMessage],
+      kinds: [4],
       authors: [contactPubkey],
       '#p': [identity.pubkey],
       limit: 50,
@@ -98,17 +116,21 @@ export async function fetchHistory(contactPubkey) {
 }
 
 export async function sendMessage(recipientPubkey, content) {
-  if (!pool || !identity) throw new Error('Not initialized')
+  if (!identity || relays.length === 0) throw new Error('Not initialized')
 
   const encrypted = await nip04.encrypt(identity.privkey, recipientPubkey, content)
 
   const event = finalizeEvent({
-    kind: kinds.EncryptedDirectMessage,
+    kind: 4,
     created_at: Math.floor(Date.now() / 1000),
     tags: [['p', recipientPubkey]],
     content: encrypted,
   }, identity.privkey)
 
-  await Promise.any(pool.publish(RELAYS, event))
+  const results = await Promise.allSettled(relays.map(r => r.publish(event)))
+  if (results.every(r => r.status === 'rejected')) {
+    throw new Error('Failed to publish to all relays')
+  }
+
   return event
 }
