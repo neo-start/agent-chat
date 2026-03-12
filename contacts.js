@@ -19,7 +19,7 @@ export function getContacts() {
   return contacts
 }
 
-export function addContact(npubOrHex, name) {
+export function addContact(npubOrHex, name, trustLevel) {
   let pubkey = npubOrHex
   if (npubOrHex.startsWith('npub')) {
     const decoded = nip19.decode(npubOrHex)
@@ -35,7 +35,7 @@ export function addContact(npubOrHex, name) {
     pubkey,
     npub: nip19.npubEncode(pubkey),
     name: name || pubkey.slice(0, 8),
-    trustLevel: 1,   // 0=silent, 1=chat, 2=query, 3=exec
+    trustLevel: (trustLevel !== undefined) ? trustLevel : 1,  // 0=silent, 1=chat, 2=query, 3=exec
     addedAt: Date.now(),
   }
 

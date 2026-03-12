@@ -18,7 +18,8 @@ import { getIdentity } from './identity.js'
 import { getContacts, addContact, renameContact, setTrustLevel } from './contacts.js'
 import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage,
   subscribePlaza, publishToPlaza, publishProfile,
-  onPlazaMessage, onAgentProfile, getPlazaMessages, getAgentProfiles } from './nostr.js'
+  onPlazaMessage, onAgentProfile, getPlazaMessages, getAgentProfiles,
+  setLocalAgentProfile } from './nostr.js'
 import { getMessages, saveMessage, mergeMessages } from './storage.js'
 import { autoReply, setAutoReplyEnabled, isAutoReplyEnabled } from './auto-reply.js'
 import { PORT, OPENCLAW_NOTIFY } from './config.js'
@@ -100,6 +101,8 @@ const server = http.createServer(async (req, res) => {
     try {
       const body = await readBody(req)
       const updated = saveProfile(body)
+      // Update local plaza profile cache immediately
+      setLocalAgentProfile(identity.pubkey, updated.name, updated.about)
       // Re-publish Nostr kind:0 so contacts see the new name
       publishProfile(updated.name, updated.about).catch(() => {})
       broadcast({ type: 'profile', data: updated })
@@ -288,7 +291,7 @@ wss.on('connection', (ws) => {
     switch (msg.type) {
       case 'add_contact': {
         try {
-          const contact = addContact(msg.npub, msg.name)
+          const contact = addContact(msg.npub, msg.name, msg.trustLevel)
           if (contact.error) {
             ws.send(JSON.stringify({ type: 'error', data: contact.error }))
           } else {

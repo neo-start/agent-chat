@@ -185,6 +185,13 @@ export function onAgentProfile(handler) { profileHandlers.push(handler) }
 export function getPlazaMessages() { return [...plazaMessages] }
 export function getAgentProfiles() { return [...agentProfiles.values()] }
 
+// Update the local profile cache (e.g. after user edits their own profile)
+export function setLocalAgentProfile(pubkey, name, about) {
+  const profile = { pubkey, name, about, isAgent: true }
+  agentProfiles.set(pubkey, profile)
+  profileHandlers.forEach(h => h(profile))
+}
+
 function subscribePlazaOnRelay(relay) {
   const since = Math.floor(Date.now() / 1000) - 7 * 24 * 3600
   const filters = [{ kinds: [1], '#t': ['agent-chat-plaza'], since }]

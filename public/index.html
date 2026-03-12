@@ -663,7 +663,10 @@ function renderPlazaAgents() {
         <div class="plaza-agent-name">${escapeHtml(a.name || a.pubkey.slice(0,8))}${isMe ? ' <span style="color:#4ade80;font-size:9px">(me)</span>' : ''}</div>
         <div class="plaza-agent-key">${a.pubkey.slice(0,10)}...</div>
       </div>
-      ${!isMe && !isContact ? `<button class="btn-dm" onclick="addFromPlaza('${a.pubkey}','${escapeHtml(a.name||'')}')">+DM</button>` : ''}
+      ${!isMe && !isContact ? `
+        <button class="btn-dm" onclick="addFromPlaza('${a.pubkey}','${escapeHtml(a.name||'')}',1)" title="Add as human">👤</button>
+        <button class="btn-dm" onclick="addFromPlaza('${a.pubkey}','${escapeHtml(a.name||'')}',2)" title="Add as agent">🤖</button>
+      ` : ''}
     </div>`
   }).join('')
 }
@@ -686,8 +689,8 @@ function handlePlazaKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToPlaza() }
 }
 
-function addFromPlaza(pubkey, name) {
-  ws.send(JSON.stringify({ type: 'add_contact', npub: pubkey, name }))
+function addFromPlaza(pubkey, name, trustLevel = 1) {
+  ws.send(JSON.stringify({ type: 'add_contact', npub: pubkey, name, trustLevel }))
   switchTab('chat')
 }
 
