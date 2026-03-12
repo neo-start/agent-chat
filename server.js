@@ -207,11 +207,14 @@ onMessage(msg => {
     const contact = getContacts().find(c => c.pubkey === msg.from)
     fireWebhook(msg, contact)
     const name = contact?.name || msg.from.slice(0, 8)
+    const trustLevel = contact?.trustLevel ?? 0
     const preview = msg.content.length > 60 ? msg.content.slice(0, 60) + '...' : msg.content
-    if (OPENCLAW_NOTIFY) {
-      exec(`openclaw system event --text "agent-chat: ${name}: ${preview}" --mode now`, (err) => {
+    // Trust level 0: silent — don't wake up main session at all
+    if (OPENCLAW_NOTIFY && trustLevel > 0) {
+      const trustLabel = ['', 'chat', 'query', 'exec'][trustLevel] || 'chat'
+      // Include trust level in notification so main session knows what this contact is allowed to do
+      exec(`openclaw system event --text "agent-chat [trust:${trustLevel}/${trustLabel}] ${name}: ${preview}" --mode now`, (err) => {
         if (err && err.code === 'ENOENT') {
-          // openclaw not installed on this machine — disable to avoid repeated errors
           process.env.OPENCLAW_NOTIFY = 'false'
         }
       })
