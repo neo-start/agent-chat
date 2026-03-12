@@ -5,27 +5,20 @@ import { sendMessage } from './nostr.js'
 import { getMessages, saveMessage } from './storage.js'
 import { AGENT_NAME, AGENT_PROMPT } from './agent-config.js'
 
-// Config via env vars — no hardcoded defaults (must be set in .env)
-const CLAUDE_API_URL = process.env.CLAUDE_API_URL || 'https://api.anthropic.com/v1/messages'
-const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY || ''
-const CLAUDE_MODEL   = process.env.CLAUDE_MODEL   || 'claude-sonnet-4-6'
-const MAX_HISTORY    = parseInt(process.env.AUTO_REPLY_HISTORY || '20', 10)
-const AUTO_REPLY_ENABLED_DEFAULT = process.env.AUTO_REPLY !== 'false'
+// NOTE: env vars are read lazily (inside functions) because ESM imports execute
+// before the .env loader code in server.js runs — module-level reads would get undefined.
+const MAX_HISTORY = () => parseInt(process.env.AUTO_REPLY_HISTORY || '20', 10)
 
-let enabled = AUTO_REPLY_ENABLED_DEFAULT
+let enabled = null  // null = uninitialized (read from env on first call)
 
-export function setAutoReplyEnabled(val) {
-  enabled = val
-}
+export function setAutoReplyEnabled(val) { enabled = val }
+export function isAutoReplyEnabled() { return enabled ?? process.env.AUTO_REPLY !== 'false' }
 
-export function isAutoReplyEnabled() {
-  return enabled
-}
 
 // Build conversation history for a contact (last N messages)
 function buildHistory(contactPubkey, identity) {
   const messages = getMessages(contactPubkey)
-  const recent = messages.slice(-MAX_HISTORY)
+  const recent = messages.slice(-MAX_HISTORY())
 
   return recent.map(msg => ({
     role: msg.from === identity.pubkey ? 'assistant' : 'user',
@@ -52,6 +45,8 @@ const SYSTEM_PROMPTS = {
 }
 
 export async function autoReply(incomingMsg, identity, contact) {
+  // Read enabled state lazily on first call
+  if (enabled === null) enabled = process.env.AUTO_REPLY !== 'false'
   if (!enabled) return
   // Don't reply to our own messages or agent messages
   if (incomingMsg.from === identity.pubkey) return
@@ -65,16 +60,21 @@ export async function autoReply(incomingMsg, identity, contact) {
   const systemPrompt = (SYSTEM_PROMPTS[trustLevel] || SYSTEM_PROMPTS[1])(contactName)
 
   try {
+    // Read API config lazily so .env values are available (ESM timing fix)
+    const apiUrl   = process.env.CLAUDE_API_URL || 'https://api.anthropic.com/v1/messages'
+    const apiKey   = process.env.CLAUDE_API_KEY || ''
+    const apiModel = process.env.CLAUDE_MODEL   || 'claude-sonnet-4-6'
+
     const history = buildHistory(incomingMsg.from, identity)
 
-    const response = await fetch(CLAUDE_API_URL, {
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${CLAUDE_API_KEY}`,
+        'Authorization': `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: CLAUDE_MODEL,
+        model: apiModel,
         messages: [
           { role: 'system', content: systemPrompt },
           ...history,
