@@ -19,10 +19,9 @@ import { getContacts, addContact, renameContact } from './contacts.js'
 import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage } from './nostr.js'
 import { getMessages, saveMessage, mergeMessages } from './storage.js'
 import { autoReply, setAutoReplyEnabled, isAutoReplyEnabled } from './auto-reply.js'
+import { PORT, OPENCLAW_NOTIFY } from './config.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-const PORT = 3737
-
 const identity = getIdentity()
 console.log('Your public key (npub):', identity.npub)
 
@@ -202,7 +201,14 @@ onMessage(msg => {
     fireWebhook(msg, contact)
     const name = contact?.name || msg.from.slice(0, 8)
     const preview = msg.content.length > 60 ? msg.content.slice(0, 60) + '...' : msg.content
-    exec(`openclaw system event --text "agent-chat: ${name} 说：${preview}" --mode now`, () => {})
+    if (OPENCLAW_NOTIFY) {
+      exec(`openclaw system event --text "agent-chat: ${name}: ${preview}" --mode now`, (err) => {
+        if (err && err.code === 'ENOENT') {
+          // openclaw not installed on this machine — disable to avoid repeated errors
+          process.env.OPENCLAW_NOTIFY = 'false'
+        }
+      })
+    }
 
     // Auto-reply via Claude
     autoReply(msg, identity, contact).then(sentMsg => {

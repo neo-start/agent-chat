@@ -1,9 +1,9 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
-import { homedir } from 'os'
 import { join } from 'path'
 import { nip19 } from 'nostr-tools'
+import { DATA_DIR } from './config.js'
 
-const CONFIG_DIR = join(homedir(), '.agent-chat')
+const CONFIG_DIR = DATA_DIR
 const CONTACTS_FILE = join(CONFIG_DIR, 'contacts.json')
 
 export function getContacts() {

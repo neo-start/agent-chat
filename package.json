@@ -14,5 +14,6 @@
     "nostr-tools": "^2.23.3",
     "ws": "^8.19.0"
   },
-  "type": "module"
+  "type": "module",
+  "engines": { "node": ">=18.0.0" }
 }

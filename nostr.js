@@ -1,11 +1,6 @@
 import { Relay, nip04, finalizeEvent } from 'nostr-tools'
 import { getContacts } from './contacts.js'
-
-const RELAY_URLS = [
-  'wss://nos.lol',
-  'wss://relay.primal.net',
-  'wss://relay.damus.io',
-]
+import { RELAY_URLS } from './config.js'
 
 // Map of url -> relay instance (null = disconnected)
 const relayMap = new Map(RELAY_URLS.map(u => [u, null]))
