@@ -128,9 +128,19 @@ export async function fetchHistory(contactPubkey) {
   return messages.sort((a, b) => a.created_at - b.created_at)
 }
 
+function isRelayOpen(relay) {
+  try {
+    const ws = relay.ws
+    if (!ws) return false
+    return ws.readyState === (ws.OPEN ?? 1)
+  } catch { return false }
+}
+
 export async function sendMessage(recipientPubkey, content, isAgent = false) {
-  const relays = getConnectedRelays()
-  if (!identity || relays.length === 0) throw new Error('Not connected to any relay')
+  if (!identity) throw new Error('Identity not loaded')
+  // Filter to open connections only — avoids SendingOnClosedConnection crash
+  const relays = getConnectedRelays().filter(isRelayOpen)
+  if (relays.length === 0) throw new Error('Not connected to any relay')
 
   const encrypted = await nip04.encrypt(identity.privkey, recipientPubkey, content)
   const tags = [['p', recipientPubkey]]
