@@ -3,6 +3,7 @@ import { WebSocketServer } from 'ws'
 import { readFileSync } from 'fs'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
+import { exec } from 'child_process'
 import { getIdentity } from './identity.js'
 import { getContacts, addContact, renameContact } from './contacts.js'
 import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage } from './nostr.js'
@@ -13,6 +14,29 @@ const PORT = 3737
 
 const identity = getIdentity()
 console.log('Your public key (npub):', identity.npub)
+
+// Webhook: POST incoming messages to this URL (env: AGENT_CHAT_WEBHOOK)
+const WEBHOOK_URL = process.env.AGENT_CHAT_WEBHOOK || null
+
+async function fireWebhook(msg, contact) {
+  if (!WEBHOOK_URL) return
+  try {
+    await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        event: 'message',
+        from: msg.from,
+        fromName: contact?.name || msg.from.slice(0, 8),
+        content: msg.content,
+        isAgent: msg.isAgent,
+        created_at: msg.created_at,
+      }),
+    })
+  } catch (e) {
+    console.warn('Webhook failed:', e.message)
+  }
+}
 
 // ── HTTP API helpers ──────────────────────────────────────────────────────────
 
@@ -133,6 +157,16 @@ onMessage(msg => {
   const contactPubkey = msg.from === identity.pubkey ? msg.to : msg.from
   saveMessage(contactPubkey, msg)
   broadcast({ type: 'message', data: msg })
+
+  // Notify agent for incoming messages (not sent by us)
+  if (msg.from !== identity.pubkey) {
+    const contact = getContacts().find(c => c.pubkey === msg.from)
+    fireWebhook(msg, contact)
+    // Wake up OpenClaw agent
+    const name = contact?.name || msg.from.slice(0, 8)
+    const preview = msg.content.length > 60 ? msg.content.slice(0, 60) + '...' : msg.content
+    exec(`openclaw system event --text "agent-chat: ${name} 说：${preview}" --mode now`, () => {})
+  }
 })
 
 wss.on('connection', (ws) => {
