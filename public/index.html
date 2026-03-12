@@ -156,17 +156,39 @@
     color: #444;
     margin-top: 3px;
     text-align: right;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
   }
-  .msg.received .msg-time { text-align: left; }
+  .msg.received .msg-time { justify-content: flex-start; }
+  .badge {
+    font-size: 9px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .badge-agent { background: #1a2a1a; color: #4ade80; }
+  .badge-human { background: #1a1a2a; color: #818cf8; }
 
   /* Input */
   .input-area {
     padding: 12px;
     border-top: 1px solid #1a1a1a;
     display: flex;
+    flex-direction: column;
     gap: 8px;
     background: #0d0d0d;
   }
+  .input-row { display: flex; gap: 8px; align-items: center; }
+  .btn-toggle {
+    background: #1a1a2a; border: 1px solid #2a2a4a;
+    color: #818cf8; padding: 6px 10px;
+    border-radius: 6px; cursor: pointer; font-size: 11px;
+    white-space: nowrap; transition: all 0.2s;
+  }
+  .btn-toggle.agent { background: #1a2a1a; border-color: #2a4a2a; color: #4ade80; }
   .msg-input {
     flex: 1;
     background: #141414;
@@ -277,9 +299,14 @@
       <div class="empty-state">No conversation selected</div>
     </div>
     <div class="input-area">
-      <textarea class="msg-input" id="msgInput" placeholder="Type a message..." disabled
-        onkeydown="handleKey(event)"></textarea>
-      <button class="btn-send" id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+      <div class="input-row">
+        <textarea class="msg-input" id="msgInput" placeholder="Type a message..." disabled
+          onkeydown="handleKey(event)"></textarea>
+        <button class="btn-send" id="sendBtn" onclick="sendMessage()" disabled>Send</button>
+      </div>
+      <div class="input-row" style="justify-content:flex-end">
+        <button class="btn-toggle" id="toggleBtn" onclick="toggleSender()">👤 Human</button>
+      </div>
     </div>
   </div>
 </div>
@@ -305,6 +332,7 @@ let myIdentity = null
 let contacts = []
 let activeContact = null
 let messages = {} // pubkey -> messages[]
+let sendAsAgent = false
 
 function connect() {
   ws = new WebSocket(`ws://${location.host}`)
@@ -424,15 +452,25 @@ function renderMessages() {
   container.innerHTML = msgs.map(m => {
     const sent = m.from === myIdentity?.pubkey
     const time = new Date(m.created_at * 1000).toLocaleTimeString('zh', { hour:'2-digit', minute:'2-digit' })
+    const badge = m.isAgent
+      ? '<span class="badge badge-agent">🤖 Agent</span>'
+      : '<span class="badge badge-human">👤 Human</span>'
     return `
       <div class="msg ${sent ? 'sent' : 'received'}">
         ${escapeHtml(m.content)}
-        <div class="msg-time">${time}</div>
+        <div class="msg-time">${badge} ${time}</div>
       </div>
     `
   }).join('')
 
   container.scrollTop = container.scrollHeight
+}
+
+function toggleSender() {
+  sendAsAgent = !sendAsAgent
+  const btn = document.getElementById('toggleBtn')
+  btn.textContent = sendAsAgent ? '🤖 Agent' : '👤 Human'
+  btn.className = 'btn-toggle' + (sendAsAgent ? ' agent' : '')
 }
 
 function sendMessage() {
@@ -441,7 +479,7 @@ function sendMessage() {
   const content = input.value.trim()
   if (!content) return
 
-  ws.send(JSON.stringify({ type: 'send_message', to: activeContact.pubkey, content }))
+  ws.send(JSON.stringify({ type: 'send_message', to: activeContact.pubkey, content, isAgent: sendAsAgent }))
   input.value = ''
   input.style.height = '38px'
 }

@@ -50,6 +50,10 @@ export function subscribeMessages(contacts) {
   }
 }
 
+function isAgentEvent(event) {
+  return event.tags.some(t => t[0] === 'agent' && t[1] === '1')
+}
+
 async function decryptAndEmit(event) {
   try {
     const plaintext = await nip04.decrypt(identity.privkey, event.pubkey, event.content)
@@ -59,6 +63,7 @@ async function decryptAndEmit(event) {
       to: identity.pubkey,
       content: plaintext,
       created_at: event.created_at,
+      isAgent: isAgentEvent(event),
     }
     messageHandlers.forEach(h => h(msg))
   } catch (e) {
@@ -107,6 +112,7 @@ export async function fetchHistory(contactPubkey) {
         to: event.pubkey === identity.pubkey ? contactPubkey : identity.pubkey,
         content: plaintext,
         created_at: event.created_at,
+        isAgent: isAgentEvent(event),
       })
     } catch (e) {
       // skip
@@ -116,15 +122,18 @@ export async function fetchHistory(contactPubkey) {
   return messages.sort((a, b) => a.created_at - b.created_at)
 }
 
-export async function sendMessage(recipientPubkey, content) {
+export async function sendMessage(recipientPubkey, content, isAgent = false) {
   if (!identity || relays.length === 0) throw new Error('Not initialized')
 
   const encrypted = await nip04.encrypt(identity.privkey, recipientPubkey, content)
 
+  const tags = [['p', recipientPubkey]]
+  if (isAgent) tags.push(['agent', '1'])
+
   const event = finalizeEvent({
     kind: 4,
     created_at: Math.floor(Date.now() / 1000),
-    tags: [['p', recipientPubkey]],
+    tags,
     content: encrypted,
   }, identity.privkey)
 

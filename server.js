@@ -99,13 +99,15 @@ wss.on('connection', (ws) => {
 
       case 'send_message': {
         try {
-          const event = await sendMessage(msg.to, msg.content)
+          const isAgent = !!msg.isAgent
+          const event = await sendMessage(msg.to, msg.content, isAgent)
           const sentMsg = {
             id: event.id,
             from: identity.pubkey,
             to: msg.to,
             content: msg.content,
             created_at: event.created_at,
+            isAgent,
           }
           saveMessage(msg.to, sentMsg)
           broadcast({ type: 'message', data: sentMsg })
