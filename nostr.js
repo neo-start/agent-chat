@@ -1,4 +1,5 @@
 import { Relay, nip04, finalizeEvent } from 'nostr-tools'
+import { getContacts } from './contacts.js'
 
 const RELAY_URLS = [
   'wss://nos.lol',
@@ -6,47 +7,67 @@ const RELAY_URLS = [
   'wss://relay.damus.io',
 ]
 
-let relays = []
+// Map of url -> relay instance (null = disconnected)
+const relayMap = new Map(RELAY_URLS.map(u => [u, null]))
 let identity = null
 let messageHandlers = []
 
+async function connectRelay(url) {
+  try {
+    const relay = await Relay.connect(url)
+    relayMap.set(url, relay)
+    console.log('Connected to', url)
+
+    relay.onclose = () => {
+      console.warn('Disconnected from', url, '— reconnecting in 5s...')
+      relayMap.set(url, null)
+      setTimeout(() => connectRelay(url), 5000)
+    }
+
+    // Re-subscribe after reconnect
+    const contacts = getContacts()
+    if (contacts.length > 0) subscribeOnRelay(relay, contacts)
+
+    return relay
+  } catch (e) {
+    console.warn('Failed to connect to', url, '— retrying in 10s...')
+    setTimeout(() => connectRelay(url), 10000)
+    return null
+  }
+}
+
 export async function initNostr(id) {
   identity = id
-  for (const url of RELAY_URLS) {
-    try {
-      const relay = await Relay.connect(url)
-      relays.push(relay)
-      console.log('Connected to', url)
-    } catch (e) {
-      console.warn('Failed to connect to', url, e.message)
-    }
-  }
+  await Promise.all(RELAY_URLS.map(url => connectRelay(url)))
+}
+
+function getConnectedRelays() {
+  return [...relayMap.values()].filter(Boolean)
 }
 
 export function onMessage(handler) {
   messageHandlers.push(handler)
 }
 
-export function subscribeMessages(contacts) {
-  if (!identity || relays.length === 0) return
+function subscribeOnRelay(relay, contacts) {
+  if (!identity) return
   const pubkeys = contacts.map(c => c.pubkey)
   if (pubkeys.length === 0) return
 
   const since = Math.floor(Date.now() / 1000) - 60 * 60 * 24 * 7
+  relay.subscribe([{
+    kinds: [4],
+    '#p': [identity.pubkey],
+    authors: pubkeys,
+    since,
+  }], {
+    onevent(event) { decryptAndEmit(event) }
+  })
+}
 
-  for (const relay of relays) {
-    relay.subscribe([
-      {
-        kinds: [4],
-        '#p': [identity.pubkey],
-        authors: pubkeys,
-        since,
-      }
-    ], {
-      onevent(event) {
-        decryptAndEmit(event)
-      }
-    })
+export function subscribeMessages(contacts) {
+  for (const relay of getConnectedRelays()) {
+    subscribeOnRelay(relay, contacts)
   }
 }
 
@@ -74,7 +95,7 @@ async function decryptAndEmit(event) {
 async function queryRelay(relay, filters) {
   return new Promise((resolve) => {
     const events = []
-    const sub = relay.subscribe(filters, {
+    relay.subscribe(filters, {
       onevent(e) { events.push(e) },
       oneose() { resolve(events) }
     })
@@ -83,22 +104,13 @@ async function queryRelay(relay, filters) {
 }
 
 export async function fetchHistory(contactPubkey) {
-  if (!identity || relays.length === 0) return []
+  if (!identity) return []
+  const relays = getConnectedRelays()
+  if (relays.length === 0) return []
 
-  const relay = relays[0]
-  const events = await queryRelay(relay, [
-    {
-      kinds: [4],
-      authors: [identity.pubkey],
-      '#p': [contactPubkey],
-      limit: 50,
-    },
-    {
-      kinds: [4],
-      authors: [contactPubkey],
-      '#p': [identity.pubkey],
-      limit: 50,
-    }
+  const events = await queryRelay(relays[0], [
+    { kinds: [4], authors: [identity.pubkey], '#p': [contactPubkey], limit: 50 },
+    { kinds: [4], authors: [contactPubkey], '#p': [identity.pubkey], limit: 50 }
   ])
 
   const messages = []
@@ -114,19 +126,17 @@ export async function fetchHistory(contactPubkey) {
         created_at: event.created_at,
         isAgent: isAgentEvent(event),
       })
-    } catch (e) {
-      // skip
-    }
+    } catch (e) { /* skip */ }
   }
 
   return messages.sort((a, b) => a.created_at - b.created_at)
 }
 
 export async function sendMessage(recipientPubkey, content, isAgent = false) {
-  if (!identity || relays.length === 0) throw new Error('Not initialized')
+  const relays = getConnectedRelays()
+  if (!identity || relays.length === 0) throw new Error('Not connected to any relay')
 
   const encrypted = await nip04.encrypt(identity.privkey, recipientPubkey, content)
-
   const tags = [['p', recipientPubkey]]
   if (isAgent) tags.push(['agent', '1'])
 

@@ -11,34 +11,110 @@ import { getMessages, saveMessage, mergeMessages } from './storage.js'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = 3737
 
-// Init identity and nostr
 const identity = getIdentity()
 console.log('Your public key (npub):', identity.npub)
 
-// HTTP server
-const server = http.createServer((req, res) => {
-  if (req.url === '/' || req.url === '/index.html') {
+// ── HTTP API helpers ──────────────────────────────────────────────────────────
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = ''
+    req.on('data', chunk => body += chunk)
+    req.on('end', () => { try { resolve(JSON.parse(body || '{}')) } catch { reject(new Error('Invalid JSON')) } })
+    req.on('error', reject)
+  })
+}
+
+function json(res, status, data) {
+  res.writeHead(status, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify(data))
+}
+
+// ── HTTP server ───────────────────────────────────────────────────────────────
+
+const server = http.createServer(async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+  if (req.method === 'OPTIONS') { res.writeHead(204); return res.end() }
+
+  const url = new URL(req.url, `http://localhost:${PORT}`)
+
+  // ── Web UI ──
+  if (url.pathname === '/' || url.pathname === '/index.html') {
     const html = readFileSync(join(__dirname, 'public', 'index.html'), 'utf8')
     res.writeHead(200, { 'Content-Type': 'text/html' })
-    res.end(html)
-  } else {
-    res.writeHead(404)
-    res.end('Not found')
+    return res.end(html)
   }
+
+  // ── REST API ──
+
+  // GET /api/identity
+  if (req.method === 'GET' && url.pathname === '/api/identity') {
+    return json(res, 200, { pubkey: identity.pubkey, npub: identity.npub })
+  }
+
+  // GET /api/contacts
+  if (req.method === 'GET' && url.pathname === '/api/contacts') {
+    return json(res, 200, getContacts())
+  }
+
+  // POST /api/contacts  { npub, name }
+  if (req.method === 'POST' && url.pathname === '/api/contacts') {
+    try {
+      const body = await readBody(req)
+      const contact = addContact(body.npub, body.name)
+      if (contact.error) return json(res, 400, { error: contact.error })
+      subscribeMessages(getContacts())
+      broadcast({ type: 'contacts', data: getContacts() })
+      return json(res, 201, contact)
+    } catch (e) {
+      return json(res, 400, { error: e.message })
+    }
+  }
+
+  // GET /api/messages/:pubkey
+  const msgMatch = url.pathname.match(/^\/api\/messages\/([0-9a-f]{64})$/)
+  if (req.method === 'GET' && msgMatch) {
+    return json(res, 200, getMessages(msgMatch[1]))
+  }
+
+  // POST /api/send  { to, content, isAgent? }
+  if (req.method === 'POST' && url.pathname === '/api/send') {
+    try {
+      const body = await readBody(req)
+      if (!body.to || !body.content) return json(res, 400, { error: 'to and content required' })
+      const isAgent = !!body.isAgent
+      const event = await sendMessage(body.to, body.content, isAgent)
+      const sentMsg = {
+        id: event.id,
+        from: identity.pubkey,
+        to: body.to,
+        content: body.content,
+        created_at: event.created_at,
+        isAgent,
+      }
+      saveMessage(body.to, sentMsg)
+      broadcast({ type: 'message', data: sentMsg })
+      return json(res, 200, { ok: true, id: event.id })
+    } catch (e) {
+      return json(res, 500, { error: e.message })
+    }
+  }
+
+  res.writeHead(404)
+  res.end('Not found')
 })
 
-// WebSocket server
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+
 const wss = new WebSocketServer({ server })
 const clients = new Set()
 
 function broadcast(data) {
   const msg = JSON.stringify(data)
-  clients.forEach(ws => {
-    if (ws.readyState === 1) ws.send(msg)
-  })
+  clients.forEach(ws => { if (ws.readyState === 1) ws.send(msg) })
 }
 
-// Forward incoming Nostr messages to all browser clients and persist
 onMessage(msg => {
   const contactPubkey = msg.from === identity.pubkey ? msg.to : msg.from
   saveMessage(contactPubkey, msg)
@@ -48,17 +124,8 @@ onMessage(msg => {
 wss.on('connection', (ws) => {
   clients.add(ws)
 
-  // Send identity on connect
-  ws.send(JSON.stringify({
-    type: 'identity',
-    data: { pubkey: identity.pubkey, npub: identity.npub }
-  }))
-
-  // Send contacts
-  ws.send(JSON.stringify({
-    type: 'contacts',
-    data: getContacts()
-  }))
+  ws.send(JSON.stringify({ type: 'identity', data: { pubkey: identity.pubkey, npub: identity.npub } }))
+  ws.send(JSON.stringify({ type: 'contacts', data: getContacts() }))
 
   ws.on('message', async (raw) => {
     let msg
@@ -82,15 +149,11 @@ wss.on('connection', (ws) => {
 
       case 'load_history': {
         try {
-          // Return local cache immediately
           const cached = getMessages(msg.pubkey)
           ws.send(JSON.stringify({ type: 'history', data: { pubkey: msg.pubkey, messages: cached } }))
-
-          // Then fetch from relay and merge
           const remote = await fetchHistory(msg.pubkey)
           mergeMessages(msg.pubkey, remote)
-          const merged = getMessages(msg.pubkey)
-          ws.send(JSON.stringify({ type: 'history', data: { pubkey: msg.pubkey, messages: merged } }))
+          ws.send(JSON.stringify({ type: 'history', data: { pubkey: msg.pubkey, messages: getMessages(msg.pubkey) } }))
         } catch (e) {
           ws.send(JSON.stringify({ type: 'error', data: e.message }))
         }
@@ -122,10 +185,12 @@ wss.on('connection', (ws) => {
   ws.on('close', () => clients.delete(ws))
 })
 
-// Init nostr then start server
+// ── Start ─────────────────────────────────────────────────────────────────────
+
 initNostr(identity).then(() => {
   subscribeMessages(getContacts())
   server.listen(PORT, () => {
     console.log(`Agent Chat running at http://localhost:${PORT}`)
+    console.log(`REST API: http://localhost:${PORT}/api/`)
   })
 })
