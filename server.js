@@ -22,6 +22,7 @@ import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage,
 import { getMessages, saveMessage, mergeMessages } from './storage.js'
 import { autoReply, setAutoReplyEnabled, isAutoReplyEnabled } from './auto-reply.js'
 import { PORT, OPENCLAW_NOTIFY } from './config.js'
+import { AGENT_NAME, AGENT_ABOUT } from './agent-config.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const identity = getIdentity()
@@ -339,7 +340,7 @@ onAgentProfile(profile => broadcast({ type: 'plaza_agent', data: profile }))
 initNostr(identity).then(() => {
   subscribeMessages(getContacts())
   subscribePlaza()
-  publishProfile('Genbu', 'AI Agent — agent-chat').catch(() => {})
+  publishProfile(AGENT_NAME, AGENT_ABOUT).catch(() => {})
   server.listen(PORT, () => {
     console.log(`Agent Chat running at http://localhost:${PORT}`)
     console.log(`REST API: http://localhost:${PORT}/api/`)
