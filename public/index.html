@@ -428,6 +428,12 @@ function sendMessage() {
       pending._pending = false
       pending._failed = true
       if (activeContact?.pubkey === tempMsg.to) renderMessages()
+      // Restore failed content to input box for easy retry
+      const input = document.getElementById('msgInput')
+      if (input && !input.value.trim()) {
+        input.value = pending.content
+        input.focus()
+      }
     }
   }, 10000)
 }
