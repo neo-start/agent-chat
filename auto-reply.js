@@ -32,13 +32,25 @@ function buildHistory(contactPubkey, identity) {
   }))
 }
 
+// System prompts per trust level
+const SYSTEM_PROMPTS = {
+  1: (name) => `You are BT-X, an AI assistant. You are chatting with ${name} via a Nostr-based P2P messaging app. Keep replies concise and natural. Respond in the same language the user uses.`,
+  2: (name) => `You are BT-X, an AI assistant with read access to the host machine. You are chatting with ${name} (trusted user). You can answer questions about system status, files, and information. Keep replies concise. Respond in the same language the user uses.`,
+  3: (name) => `You are BT-X, an AI assistant with full access to the host machine. You are chatting with ${name} (highly trusted user). You can execute commands, open applications, and perform operations on the machine when asked. Be careful and confirm destructive actions. Respond in the same language the user uses.`,
+}
+
 export async function autoReply(incomingMsg, identity, contact) {
   if (!enabled) return
   // Don't reply to our own messages or agent messages
   if (incomingMsg.from === identity.pubkey) return
   if (incomingMsg.isAgent) return
 
+  const trustLevel = contact?.trustLevel ?? 0
+  // Level 0: silent — don't consume tokens
+  if (trustLevel === 0) return
+
   const contactName = contact?.name || incomingMsg.from.slice(0, 8)
+  const systemPrompt = (SYSTEM_PROMPTS[trustLevel] || SYSTEM_PROMPTS[1])(contactName)
 
   try {
     const history = buildHistory(incomingMsg.from, identity)
@@ -52,10 +64,7 @@ export async function autoReply(incomingMsg, identity, contact) {
       body: JSON.stringify({
         model: CLAUDE_MODEL,
         messages: [
-          {
-            role: 'system',
-            content: `You are BT-X, an AI assistant. You are chatting with ${contactName} via a Nostr-based P2P messaging app. Keep replies concise and natural. Respond in the same language the user uses.`,
-          },
+          { role: 'system', content: systemPrompt },
           ...history,
         ],
         max_tokens: 500,

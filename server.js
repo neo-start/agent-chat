@@ -15,7 +15,7 @@ import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { exec } from 'child_process'
 import { getIdentity } from './identity.js'
-import { getContacts, addContact, renameContact } from './contacts.js'
+import { getContacts, addContact, renameContact, setTrustLevel } from './contacts.js'
 import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage } from './nostr.js'
 import { getMessages, saveMessage, mergeMessages } from './storage.js'
 import { autoReply, setAutoReplyEnabled, isAutoReplyEnabled } from './auto-reply.js'
@@ -112,12 +112,19 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, getMessages(msgMatch[1]))
   }
 
-  // PATCH /api/contacts/:pubkey  { name }
+  // PATCH /api/contacts/:pubkey  { name?, trustLevel? }
   const contactMatch = url.pathname.match(/^\/api\/contacts\/([0-9a-f]{64})$/)
   if (req.method === 'PATCH' && contactMatch) {
     try {
       const body = await readBody(req)
-      const result = renameContact(contactMatch[1], body.name)
+      let result
+      if (body.name !== undefined) {
+        result = renameContact(contactMatch[1], body.name)
+      }
+      if (body.trustLevel !== undefined) {
+        result = setTrustLevel(contactMatch[1], body.trustLevel)
+      }
+      if (!result) return json(res, 400, { error: 'Provide name or trustLevel' })
       if (result.error) return json(res, 404, { error: result.error })
       broadcast({ type: 'contacts', data: getContacts() })
       return json(res, 200, result)

@@ -52,6 +52,12 @@
   .chat-header-info .contact-key { font-size: 10px; color: #444; font-family: monospace; margin-top: 2px; }
   .btn-rename { background: none; border: 1px solid #222; color: #555; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s; }
   .btn-rename:hover { border-color: #444; color: #999; }
+  .trust-badge { font-size: 10px; padding: 2px 6px; border-radius: 3px; margin-left: 6px; font-weight: 600; }
+  .trust-0 { background: #1a1a1a; color: #444; }
+  .trust-1 { background: #1a2a1a; color: #4a8; }
+  .trust-2 { background: #1a2035; color: #48f; }
+  .trust-3 { background: #2a1a10; color: #f84; }
+  .trust-select { background: #111; border: 1px solid #222; color: #777; font-size: 11px; border-radius: 4px; padding: 3px 6px; cursor: pointer; }
 
   .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 6px; }
   .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: #2a2a2a; font-size: 13px; }
@@ -238,6 +244,7 @@ function renderContacts() {
         <div class="contact-key">${c.npub.slice(0,12)}...</div>
       </div>
       ${count > 0 ? `<div class="unread-badge">${count}</div>` : ''}
+      <div class="trust-badge trust-${c.trustLevel||0}">${['🔇','💬','🔍','⚡'][c.trustLevel||0]}</div>
     </div>`
   }).join('')
 }
@@ -254,7 +261,15 @@ function selectContact(pubkey) {
       <div class="contact-name">${activeContact.name || activeContact.npub.slice(0,16)}</div>
       <div class="contact-key">${activeContact.npub}</div>
     </div>
-    <button class="btn-rename" onclick="showRename('${activeContact.pubkey}', '${activeContact.name || ''}')">Rename</button>
+    <div style="display:flex;align-items:center;gap:8px">
+      <select class="trust-select" onchange="setTrust('${activeContact.pubkey}', this.value)" title="Trust level">
+        <option value="0" ${(activeContact.trustLevel||0)===0?'selected':''}>🔇 Silent</option>
+        <option value="1" ${(activeContact.trustLevel||0)===1?'selected':''}>💬 Chat</option>
+        <option value="2" ${(activeContact.trustLevel||0)===2?'selected':''}>🔍 Query</option>
+        <option value="3" ${(activeContact.trustLevel||0)===3?'selected':''}>⚡ Exec</option>
+      </select>
+      <button class="btn-rename" onclick="showRename('${activeContact.pubkey}', '${activeContact.name || ''}')">Rename</button>
+    </div>
   `
 
   document.getElementById('msgInput').disabled = false
@@ -426,6 +441,15 @@ function handleKey(e) {
 function showAddContact() {
   document.getElementById('addModal').classList.add('show')
   document.getElementById('contactNpub').focus()
+}
+
+async function setTrust(pubkey, level) {
+  await fetch(`/api/contacts/${pubkey}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ trustLevel: parseInt(level) }),
+  })
+  // contacts list will update via WebSocket broadcast
 }
 
 function showRename(pubkey, currentName) {
