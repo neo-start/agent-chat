@@ -43,6 +43,22 @@
   .contact-item { padding: 10px 12px; cursor: pointer; border-bottom: 1px solid #111; transition: background 0.15s; display: flex; align-items: center; gap: 8px; position: relative; }
   .contact-item:hover { background: #141414; }
   .contact-item.active { background: #181818; }
+  .contact-actions { display: none; gap: 3px; flex-shrink: 0; }
+  .contact-item:hover .contact-actions { display: flex; }
+  .btn-contact-action { background: none; border: none; color: #333; cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 3px; transition: color 0.15s; }
+  .btn-contact-action:hover { color: #888; }
+  .btn-contact-action.danger:hover { color: #f87171; }
+  .pending-section { border-top: 1px solid #1a1a1a; }
+  .pending-header { padding: 8px 12px; font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 0.08em; display: flex; align-items: center; justify-content: space-between; }
+  .pending-badge { background: #f59e0b; color: #000; border-radius: 8px; font-size: 9px; font-weight: 700; padding: 1px 5px; }
+  .pending-item { padding: 8px 12px; border-bottom: 1px solid #111; cursor: pointer; }
+  .pending-item:hover { background: #141414; }
+  .pending-item-name { font-size: 12px; color: #aaa; }
+  .pending-item-preview { font-size: 11px; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+  .pending-item-actions { display: flex; gap: 5px; margin-top: 6px; }
+  .btn-accept { background: #1a2a1a; border: 1px solid #2a4a2a; color: #4ade80; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+  .btn-decline { background: none; border: 1px solid #2a2a2a; color: #555; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+  .btn-block-req { background: none; border: 1px solid #2a1a1a; color: #7f4444; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
   .contact-avatar { width: 32px; height: 32px; border-radius: 8px; background: #1e1e1e; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #666; flex-shrink: 0; position: relative; }
   .contact-info { min-width: 0; flex: 1; }
   .contact-name { font-size: 13px; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -257,6 +273,8 @@
 let ws = null
 let myIdentity = null
 let contacts = []
+let blocked = []
+let pending = []
 let activeContact = null
 let messages = {}    // pubkey -> messages[]
 let unread = {}      // pubkey -> count
@@ -302,6 +320,15 @@ function connect() {
 
       case 'contacts':
         contacts = data
+        renderContacts()
+        break
+
+      case 'blocked':
+        blocked = data
+        break
+
+      case 'pending':
+        pending = data
         renderContacts()
         break
 
@@ -357,20 +384,49 @@ function renderContacts() {
     </div>`
     return
   }
-  list.innerHTML = contacts.map(c => {
+  let html = contacts.map(c => {
     const count = unread[c.pubkey] || 0
     return `
     <div class="contact-item ${activeContact?.pubkey === c.pubkey ? 'active' : ''}"
          onclick="selectContact('${c.pubkey}')">
       <div class="contact-avatar">${(c.name || '?')[0].toUpperCase()}</div>
       <div class="contact-info">
-        <div class="contact-name">${c.name || c.npub.slice(0,8)}</div>
+        <div class="contact-name">${escapeHtml(c.name || c.npub.slice(0,8))}</div>
         <div class="contact-key">${c.npub.slice(0,12)}...</div>
       </div>
       ${count > 0 ? `<div class="unread-badge">${count}</div>` : ''}
       <div class="trust-badge trust-${c.trustLevel||0}">${['🔇','💬','🔍','⚡'][c.trustLevel||0]}</div>
+      <div class="contact-actions" onclick="event.stopPropagation()">
+        <button class="btn-contact-action danger" title="Delete" onclick="removeContact('${c.pubkey}')">🗑</button>
+        <button class="btn-contact-action danger" title="Block" onclick="blockContact('${c.pubkey}','${escapeHtml(c.name||'')}')">🚫</button>
+      </div>
     </div>`
   }).join('')
+
+  // Pending requests section
+  if (pending.length > 0) {
+    html += `<div class="pending-section">
+      <div class="pending-header">
+        <span>Requests</span>
+        <span class="pending-badge">${pending.length}</span>
+      </div>
+      ${pending.map(p => {
+        const preview = p.msg?.content ? p.msg.content.slice(0, 50) : ''
+        const name = p.pubkey.slice(0, 10)
+        return `<div class="pending-item" onclick="selectPending('${p.pubkey}')">
+          <div class="pending-item-name">👤 ${escapeHtml(name)}...</div>
+          <div class="pending-item-preview">${escapeHtml(preview)}</div>
+          <div class="pending-item-actions">
+            <button class="btn-accept" onclick="event.stopPropagation();acceptPending('${p.pubkey}')">Accept</button>
+            <button class="btn-decline" onclick="event.stopPropagation();declinePending('${p.pubkey}')">Ignore</button>
+            <button class="btn-block-req" onclick="event.stopPropagation();blockPending('${p.pubkey}')">Block</button>
+          </div>
+        </div>`
+      }).join('')}
+    </div>`
+  }
+
+  list.innerHTML = html
 }
 
 function selectContact(pubkey) {
@@ -734,6 +790,60 @@ async function sendToPlaza() {
 
 function handlePlazaKey(e) {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendToPlaza() }
+}
+
+function removeContact(pubkey) {
+  if (!confirm('Remove this contact?')) return
+  ws.send(JSON.stringify({ type: 'remove_contact', pubkey }))
+  if (activeContact?.pubkey === pubkey) {
+    activeContact = null
+    renderMessages()
+    document.getElementById('chatHeader').innerHTML = '<div class="empty-state" style="color:#1e1e1e;font-size:12px;">Select a contact</div>'
+  }
+}
+
+function blockContact(pubkey, name) {
+  if (!confirm(`Block ${name || pubkey.slice(0,10)}? They won't be able to reach you.`)) return
+  ws.send(JSON.stringify({ type: 'block_contact', pubkey }))
+  if (activeContact?.pubkey === pubkey) {
+    activeContact = null
+    renderMessages()
+    document.getElementById('chatHeader').innerHTML = '<div class="empty-state" style="color:#1e1e1e;font-size:12px;">Select a contact</div>'
+  }
+}
+
+function selectPending(pubkey) {
+  const p = pending.find(x => x.pubkey === pubkey)
+  if (!p) return
+  activeContact = { pubkey, npub: pubkey, name: pubkey.slice(0,10), trustLevel: 0, _pending: true }
+  renderMessages()
+  document.getElementById('chatHeader').innerHTML = `
+    <div class="chat-header-info">
+      <div class="contact-name">👤 ${escapeHtml(pubkey.slice(0,10))}... <span style="font-size:10px;color:#f59e0b;margin-left:4px;">Pending</span></div>
+      <div class="contact-key">${pubkey}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:6px">
+      <button class="btn-accept" onclick="acceptPending('${pubkey}')">Accept</button>
+      <button class="btn-decline" onclick="declinePending('${pubkey}')">Ignore</button>
+      <button class="btn-block-req" onclick="blockPending('${pubkey}')">Block</button>
+    </div>
+  `
+}
+
+function acceptPending(pubkey) {
+  ws.send(JSON.stringify({ type: 'accept_pending', pubkey }))
+}
+
+function declinePending(pubkey) {
+  ws.send(JSON.stringify({ type: 'decline_pending', pubkey }))
+  if (activeContact?.pubkey === pubkey) activeContact = null
+  renderMessages()
+}
+
+function blockPending(pubkey) {
+  ws.send(JSON.stringify({ type: 'block_contact', pubkey }))
+  if (activeContact?.pubkey === pubkey) activeContact = null
+  renderMessages()
 }
 
 function addFromPlaza(pubkey, name, trustLevel = 1) {

@@ -15,7 +15,9 @@ import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import { exec } from 'child_process'
 import { getIdentity } from './identity.js'
-import { getContacts, addContact, renameContact, setTrustLevel } from './contacts.js'
+import { getContacts, addContact, renameContact, setTrustLevel,
+  removeContact, blockContact, unblockContact, isBlocked, getBlocked,
+  getPending, addPendingMessage, removePending } from './contacts.js'
 import { initNostr, onMessage, subscribeMessages, fetchHistory, sendMessage,
   subscribePlaza, publishToPlaza, publishProfile,
   onPlazaMessage, onAgentProfile, getPlazaMessages, getAgentProfiles,
@@ -156,6 +158,44 @@ const server = http.createServer(async (req, res) => {
     } catch (e) {
       return json(res, 400, { error: e.message })
     }
+  }
+
+  // DELETE /api/contacts/:pubkey
+  if (req.method === 'DELETE' && contactMatch) {
+    const result = removeContact(contactMatch[1])
+    if (result.error) return json(res, 404, result)
+    broadcast({ type: 'contacts', data: getContacts() })
+    return json(res, 200, result)
+  }
+
+  // POST /api/contacts/:pubkey/block
+  const blockMatch = url.pathname.match(/^\/api\/contacts\/([0-9a-f]{64})\/block$/)
+  if (req.method === 'POST' && blockMatch) {
+    blockContact(blockMatch[1])
+    broadcast({ type: 'contacts', data: getContacts() })
+    broadcast({ type: 'blocked', data: getBlocked() })
+    return json(res, 200, { ok: true })
+  }
+
+  // POST /api/contacts/:pubkey/unblock
+  const unblockMatch = url.pathname.match(/^\/api\/contacts\/([0-9a-f]{64})\/unblock$/)
+  if (req.method === 'POST' && unblockMatch) {
+    unblockContact(unblockMatch[1])
+    broadcast({ type: 'blocked', data: getBlocked() })
+    return json(res, 200, { ok: true })
+  }
+
+  // GET /api/pending
+  if (req.method === 'GET' && url.pathname === '/api/pending') {
+    return json(res, 200, getPending())
+  }
+
+  // DELETE /api/pending/:pubkey  (decline request)
+  const pendingMatch = url.pathname.match(/^\/api\/pending\/([0-9a-f]{64})$/)
+  if (req.method === 'DELETE' && pendingMatch) {
+    removePending(pendingMatch[1])
+    broadcast({ type: 'pending', data: getPending() })
+    return json(res, 200, { ok: true })
   }
 
   // POST /api/send-file  multipart/form-data: to, file, [isAgent]
@@ -309,20 +349,41 @@ onMessage(msg => {
   }
 
   const contactPubkey = msg.from === identity.pubkey ? msg.to : msg.from
-  saveMessage(contactPubkey, msg)
-  broadcast({ type: 'message', data: msg })
 
-  // Notify agent for incoming messages (not sent by us)
+  // Incoming message from someone else
   if (msg.from !== identity.pubkey) {
+    // Drop messages from blocked contacts
+    if (isBlocked(msg.from)) return
+
     let contact = getContacts().find(c => c.pubkey === msg.from)
 
-    // Auto-accept strangers: add unknown senders as trust=1 so agent can reply
+    // Auto-accept strangers
     if (!contact && process.env.AUTO_ACCEPT_STRANGERS === 'true') {
       addContact(msg.from, msg.from.slice(0, 8), 1)
       contact = getContacts().find(c => c.pubkey === msg.from)
       broadcast({ type: 'contacts', data: getContacts() })
     }
 
+    // Unknown sender (not a contact, not auto-accepted): treat as pending request
+    if (!contact) {
+      const added = addPendingMessage(msg.from, msg)
+      if (added) {
+        // Save message so it's visible when user accepts
+        saveMessage(msg.from, msg)
+        broadcast({ type: 'pending', data: getPending() })
+        broadcast({ type: 'message', data: msg })
+      }
+      // Ignore subsequent messages from this stranger
+      return
+    }
+  }
+
+  saveMessage(contactPubkey, msg)
+  broadcast({ type: 'message', data: msg })
+
+  // Notify agent for incoming messages (not sent by us)
+  if (msg.from !== identity.pubkey) {
+    const contact = getContacts().find(c => c.pubkey === msg.from)
     fireWebhook(msg, contact)
     const name = contact?.name || msg.from.slice(0, 8)
     const trustLevel = contact?.trustLevel ?? 0
@@ -350,6 +411,8 @@ wss.on('connection', (ws) => {
 
   ws.send(JSON.stringify({ type: 'identity', data: { pubkey: identity.pubkey, npub: identity.npub, ...getProfile() } }))
   ws.send(JSON.stringify({ type: 'contacts', data: getContacts() }))
+  ws.send(JSON.stringify({ type: 'blocked', data: getBlocked() }))
+  ws.send(JSON.stringify({ type: 'pending', data: getPending() }))
   ws.send(JSON.stringify({ type: 'plaza_messages', data: getPlazaMessages() }))
   ws.send(JSON.stringify({ type: 'plaza_agents', data: getAgentProfiles() }))
 
@@ -396,9 +459,58 @@ wss.on('connection', (ws) => {
         break
       }
 
+      case 'remove_contact': {
+        removeContact(msg.pubkey)
+        broadcast({ type: 'contacts', data: getContacts() })
+        break
+      }
+
+      case 'block_contact': {
+        blockContact(msg.pubkey)
+        removePending(msg.pubkey)
+        broadcast({ type: 'contacts', data: getContacts() })
+        broadcast({ type: 'blocked', data: getBlocked() })
+        broadcast({ type: 'pending', data: getPending() })
+        break
+      }
+
+      case 'unblock_contact': {
+        unblockContact(msg.pubkey)
+        broadcast({ type: 'blocked', data: getBlocked() })
+        break
+      }
+
+      case 'accept_pending': {
+        // Accept a stranger request: add as contact and remove from pending
+        const pending = getPending().find(p => p.pubkey === msg.pubkey)
+        if (pending) {
+          addContact(msg.pubkey, msg.name || msg.pubkey.slice(0, 8), 1)
+          removePending(msg.pubkey)
+          subscribeMessages(getContacts())
+          broadcast({ type: 'contacts', data: getContacts() })
+          broadcast({ type: 'pending', data: getPending() })
+        }
+        break
+      }
+
+      case 'decline_pending': {
+        removePending(msg.pubkey)
+        broadcast({ type: 'pending', data: getPending() })
+        break
+      }
+
       case 'send_message': {
         try {
           const isAgent = !!msg.isAgent
+          // If replying to a pending stranger, auto-accept them first
+          const wasPending = getPending().find(p => p.pubkey === msg.to)
+          if (wasPending && !getContacts().find(c => c.pubkey === msg.to)) {
+            addContact(msg.to, msg.to.slice(0, 8), 1)
+            removePending(msg.to)
+            subscribeMessages(getContacts())
+            broadcast({ type: 'contacts', data: getContacts() })
+            broadcast({ type: 'pending', data: getPending() })
+          }
           const event = await sendMessage(msg.to, msg.content, isAgent)
           const sentMsg = {
             id: event.id,

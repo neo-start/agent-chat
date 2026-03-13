@@ -64,6 +64,72 @@ export function setTrustLevel(pubkey, level) {
   return c
 }
 
+export function removeContact(pubkey) {
+  const contacts = getContacts()
+  const idx = contacts.findIndex(c => c.pubkey === pubkey)
+  if (idx === -1) return { error: 'Contact not found' }
+  contacts.splice(idx, 1)
+  saveContacts(contacts)
+  return { ok: true }
+}
+
+// ── Blocked list ──────────────────────────────────────────────────────────────
+const BLOCKED_FILE = join(CONFIG_DIR, 'blocked.json')
+
+export function getBlocked() {
+  if (!existsSync(BLOCKED_FILE)) return []
+  return JSON.parse(readFileSync(BLOCKED_FILE, 'utf8'))
+}
+
+export function isBlocked(pubkey) {
+  return getBlocked().includes(pubkey)
+}
+
+export function blockContact(pubkey) {
+  const list = getBlocked()
+  if (!list.includes(pubkey)) {
+    list.push(pubkey)
+    mkdirSync(CONFIG_DIR, { recursive: true })
+    writeFileSync(BLOCKED_FILE, JSON.stringify(list, null, 2))
+  }
+  // Also remove from contacts
+  const contacts = getContacts()
+  const idx = contacts.findIndex(c => c.pubkey === pubkey)
+  if (idx !== -1) { contacts.splice(idx, 1); saveContacts(contacts) }
+  return { ok: true }
+}
+
+export function unblockContact(pubkey) {
+  const list = getBlocked().filter(p => p !== pubkey)
+  mkdirSync(CONFIG_DIR, { recursive: true })
+  writeFileSync(BLOCKED_FILE, JSON.stringify(list, null, 2))
+  return { ok: true }
+}
+
+// ── Pending (stranger requests) ───────────────────────────────────────────────
+const PENDING_FILE = join(CONFIG_DIR, 'pending.json')
+
+export function getPending() {
+  if (!existsSync(PENDING_FILE)) return []
+  return JSON.parse(readFileSync(PENDING_FILE, 'utf8'))
+}
+
+export function addPendingMessage(pubkey, msg) {
+  const list = getPending()
+  // Only keep the first message per pubkey
+  if (list.find(p => p.pubkey === pubkey)) return false
+  list.push({ pubkey, msg, receivedAt: Date.now() })
+  mkdirSync(CONFIG_DIR, { recursive: true })
+  writeFileSync(PENDING_FILE, JSON.stringify(list, null, 2))
+  return true
+}
+
+export function removePending(pubkey) {
+  const list = getPending().filter(p => p.pubkey !== pubkey)
+  mkdirSync(CONFIG_DIR, { recursive: true })
+  writeFileSync(PENDING_FILE, JSON.stringify(list, null, 2))
+}
+
 export function saveContacts(contacts) {
   mkdirSync(CONFIG_DIR, { recursive: true })
   writeFileSync(CONTACTS_FILE, JSON.stringify(contacts, null, 2))
