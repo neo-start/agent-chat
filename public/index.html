@@ -80,6 +80,15 @@
   .badge-status { font-size: 9px; color: #555; }
   .badge-failed { color: #f87171; }
   .msg-json { font-family: monospace; font-size: 11px; background: #0d0d0d; border: 1px solid #1e1e1e; border-radius: 6px; padding: 8px; white-space: pre-wrap; }
+  .msg-file { display: flex; flex-direction: column; gap: 6px; }
+  .msg-file img { max-width: 280px; max-height: 200px; border-radius: 6px; cursor: pointer; display: block; }
+  .msg-file video { max-width: 280px; border-radius: 6px; display: block; }
+  .msg-file-info { display: flex; align-items: center; gap: 6px; font-size: 11px; color: #666; }
+  .msg-file-dl { background: none; border: 1px solid #2a2a2a; color: #666; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s; text-decoration: none; display: inline-block; }
+  .msg-file-dl:hover { border-color: #444; color: #aaa; }
+  .btn-attach { background: none; border: 1px solid #222; color: #555; width: 34px; height: 34px; border-radius: 6px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+  .btn-attach:hover { border-color: #444; color: #999; }
+  .drag-over .msg-input { border-color: #4ade80 !important; }
 
   .input-area { padding: 12px; border-top: 1px solid #1a1a1a; display: flex; flex-direction: column; gap: 8px; background: #0d0d0d; }
   .input-row { display: flex; gap: 8px; align-items: center; }
@@ -174,7 +183,9 @@
       <div class="empty-state">No conversation selected</div>
     </div>
     <div class="input-area">
+      <input type="file" id="fileInput" style="display:none" onchange="handleFileSelect(event)" />
       <div class="input-row">
+        <button class="btn-attach" id="attachBtn" onclick="document.getElementById('fileInput').click()" disabled title="Attach file (max 500KB)">📎</button>
         <textarea class="msg-input" id="msgInput" placeholder="Type a message..." disabled
           onkeydown="handleKey(event)"></textarea>
         <button class="btn-send" id="sendBtn" onclick="sendMessage()" disabled>Send</button>
@@ -378,6 +389,7 @@ function selectContact(pubkey) {
 
   document.getElementById('msgInput').disabled = false
   document.getElementById('sendBtn').disabled = false
+  document.getElementById('attachBtn').disabled = false
   document.getElementById('msgInput').focus()
 
   if (!messages[pubkey]) {
@@ -470,7 +482,11 @@ function renderMessages() {
     if (isJsonContent(m.content)) {
       try {
         const parsed = JSON.parse(m.content)
-        contentHtml = `<div class="msg-json">${escapeHtml(JSON.stringify(parsed, null, 2))}</div>`
+        if (parsed._file) {
+          contentHtml = renderFileMessage(parsed)
+        } else {
+          contentHtml = `<div class="msg-json">${escapeHtml(JSON.stringify(parsed, null, 2))}</div>`
+        }
       } catch {
         contentHtml = escapeHtml(m.content).replace(/\n/g, '<br>')
       }
@@ -695,6 +711,70 @@ function addFromPlaza(pubkey, name, trustLevel = 1) {
 }
 
 // Close modals on overlay click
+// ── File transfer ──────────────────────────────────────────────────────────────
+
+const FILE_SIZE_LIMIT = 500 * 1024  // 500KB
+
+function renderFileMessage(file) {
+  const mime = file.mime || ''
+  const dataUrl = `data:${mime};base64,${file.data}`
+  const sizeStr = file.size > 1024 ? `${(file.size/1024).toFixed(1)}KB` : `${file.size}B`
+
+  let preview = ''
+  if (mime.startsWith('image/')) {
+    preview = `<img src="${dataUrl}" alt="${escapeHtml(file.name)}" onclick="window.open(this.src)" />`
+  } else if (mime.startsWith('video/')) {
+    preview = `<video src="${dataUrl}" controls></video>`
+  }
+
+  const dl = `<a class="msg-file-dl" href="${dataUrl}" download="${escapeHtml(file.name)}">⬇ Download</a>`
+  return `<div class="msg-file">
+    ${preview}
+    <div class="msg-file-info">📄 <strong>${escapeHtml(file.name)}</strong> <span>${sizeStr}</span> ${dl}</div>
+  </div>`
+}
+
+function handleFileSelect(e) {
+  const file = e.target.files[0]
+  e.target.value = ''  // reset so same file can be re-selected
+  if (!file) return
+  if (file.size > FILE_SIZE_LIMIT) {
+    showError(`File too large (${(file.size/1024).toFixed(0)}KB). Max 500KB.`)
+    return
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    const base64 = reader.result.split(',')[1]
+    const content = JSON.stringify({ _file: true, name: file.name, mime: file.type, size: file.size, data: base64 })
+    if (!activeContact || !ws) return
+    const tempId = 'temp_' + Date.now()
+    const tempMsg = { id: tempId, from: myIdentity.pubkey, to: activeContact.pubkey, content, created_at: Math.floor(Date.now()/1000), isAgent: sendAsAgent, _pending: true, _tempId: tempId }
+    if (!messages[activeContact.pubkey]) messages[activeContact.pubkey] = []
+    messages[activeContact.pubkey].push(tempMsg)
+    renderMessages()
+    ws.send(JSON.stringify({ type: 'send_message', to: activeContact.pubkey, content, isAgent: sendAsAgent, _tempId: tempId }))
+  }
+  reader.readAsDataURL(file)
+}
+
+// Drag-and-drop on chat area
+document.addEventListener('DOMContentLoaded', () => {
+  const chatEl = document.getElementById('chatPanel')
+  chatEl.addEventListener('dragover', e => { e.preventDefault(); chatEl.classList.add('drag-over') })
+  chatEl.addEventListener('dragleave', () => chatEl.classList.remove('drag-over'))
+  chatEl.addEventListener('drop', e => {
+    e.preventDefault()
+    chatEl.classList.remove('drag-over')
+    const file = e.dataTransfer.files[0]
+    if (file) {
+      const dt = new DataTransfer()
+      dt.items.add(file)
+      document.getElementById('fileInput').files = dt.files
+      handleFileSelect({ target: document.getElementById('fileInput') })
+    }
+  })
+})
+
 // ── Profile ────────────────────────────────────────────────────────────────────
 
 function renderMyName(data) {
