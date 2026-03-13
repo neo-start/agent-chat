@@ -314,7 +314,15 @@ onMessage(msg => {
 
   // Notify agent for incoming messages (not sent by us)
   if (msg.from !== identity.pubkey) {
-    const contact = getContacts().find(c => c.pubkey === msg.from)
+    let contact = getContacts().find(c => c.pubkey === msg.from)
+
+    // Auto-accept strangers: add unknown senders as trust=1 so agent can reply
+    if (!contact && process.env.AUTO_ACCEPT_STRANGERS === 'true') {
+      addContact(msg.from, msg.from.slice(0, 8), 1)
+      contact = getContacts().find(c => c.pubkey === msg.from)
+      broadcast({ type: 'contacts', data: getContacts() })
+    }
+
     fireWebhook(msg, contact)
     const name = contact?.name || msg.from.slice(0, 8)
     const trustLevel = contact?.trustLevel ?? 0
