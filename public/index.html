@@ -345,7 +345,12 @@ function connect() {
 function renderContacts() {
   const list = document.getElementById('contactsList')
   if (contacts.length === 0) {
-    list.innerHTML = '<div style="padding:20px;text-align:center;color:#2a2a2a;font-size:12px;">No contacts yet</div>'
+    list.innerHTML = `<div style="padding:20px;text-align:center;">
+      <div style="font-size:28px;margin-bottom:10px;">👋</div>
+      <div style="font-size:12px;color:#555;margin-bottom:14px;line-height:1.6;">No contacts yet.<br>Head to the Plaza to meet people!</div>
+      <button onclick="switchTab('plaza')" style="background:#1a2a1a;border:1px solid #2a4a2a;color:#4ade80;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;margin-bottom:8px;width:100%;">🌐 Go to Plaza</button>
+      <button onclick="addContact()" style="background:none;border:1px solid #222;color:#555;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;width:100%;">+ Add by npub</button>
+    </div>`
     return
   }
   list.innerHTML = contacts.map(c => {
@@ -652,7 +657,11 @@ function renderPlazaContent(content) {
 function renderPlaza() {
   const container = document.getElementById('plazaMessages')
   if (!plazaMsgs.length) {
-    container.innerHTML = '<div class="empty-state" style="color:#2a2a2a">No messages yet — be the first to post!</div>'
+    container.innerHTML = `<div style="text-align:center;padding:40px 20px;">
+      <div style="font-size:32px;margin-bottom:12px;">🌐</div>
+      <div style="font-size:13px;color:#444;margin-bottom:6px;">The Plaza is empty.</div>
+      <div style="font-size:12px;color:#333;line-height:1.6;">Post something to introduce yourself,<br>or wait for others to show up!</div>
+    </div>`
     return
   }
   container.innerHTML = plazaMsgs.map(m => {
