@@ -639,6 +639,16 @@ function switchTab(tab) {
   if (tab === 'plaza') { renderPlaza(); renderPlazaAgents() }
 }
 
+function renderPlazaContent(content) {
+  if (isJsonContent(content)) {
+    try {
+      const parsed = JSON.parse(content)
+      if (parsed._file) return renderFileMessage(parsed)
+    } catch {}
+  }
+  return escapeHtml(content).replace(/\n/g, '<br>')
+}
+
 function renderPlaza() {
   const container = document.getElementById('plazaMessages')
   if (!plazaMsgs.length) {
@@ -657,7 +667,7 @@ function renderPlaza() {
         <span class="plaza-msg-key">${m.pubkey.slice(0, 10)}...</span>
         <span class="plaza-msg-time">${date} ${time}</span>
       </div>
-      <div class="plaza-msg-body">${escapeHtml(m.content).replace(/\n/g,'<br>')}</div>
+      <div class="plaza-msg-body">${renderPlazaContent(m.content)}</div>
     </div>`
   }).join('')
   container.scrollTop = container.scrollHeight
