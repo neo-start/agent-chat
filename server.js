@@ -158,6 +158,67 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // POST /api/send-file  multipart/form-data: to, file, [isAgent]
+  // Agents can call this to send files programmatically (e.g. via curl -F)
+  if (req.method === 'POST' && url.pathname === '/api/send-file') {
+    try {
+      const ct = req.headers['content-type'] || ''
+      if (!ct.includes('multipart/form-data')) return json(res, 400, { error: 'multipart/form-data required' })
+
+      const boundary = ct.split('boundary=')[1]?.trim()
+      if (!boundary) return json(res, 400, { error: 'missing boundary' })
+
+      const chunks = []
+      for await (const chunk of req) chunks.push(chunk)
+      const buf = Buffer.concat(chunks)
+      const raw = buf.toString('binary')
+
+      // Parse multipart fields
+      const parts = {}
+      const sep = '--' + boundary
+      raw.split(sep).forEach(part => {
+        const headerEnd = part.indexOf('\r\n\r\n')
+        if (headerEnd === -1) return
+        const headers = part.slice(0, headerEnd)
+        const nameMatch = headers.match(/name="([^"]+)"/)
+        if (!nameMatch) return
+        const name = nameMatch[1]
+        const filenameMatch = headers.match(/filename="([^"]+)"/)
+        const contentTypeMatch = headers.match(/Content-Type:\s*([^\r\n]+)/)
+        const value = part.slice(headerEnd + 4, part.length - 2)  // strip trailing \r\n
+        if (filenameMatch) {
+          parts[name] = { filename: filenameMatch[1], mime: contentTypeMatch?.[1]?.trim() || 'application/octet-stream', data: Buffer.from(value, 'binary') }
+        } else {
+          parts[name] = value.trim()
+        }
+      })
+
+      const to = parts.to
+      const fileField = parts.file
+      if (!to || !fileField) return json(res, 400, { error: 'to and file fields required' })
+
+      const FILE_LIMIT = 500 * 1024
+      if (fileField.data.length > FILE_LIMIT) return json(res, 400, { error: `File too large (max 500KB)` })
+
+      const content = JSON.stringify({
+        _file: true,
+        name: fileField.filename,
+        mime: fileField.mime,
+        size: fileField.data.length,
+        data: fileField.data.toString('base64'),
+      })
+
+      const isAgent = parts.isAgent === 'true' || parts.isAgent === '1'
+      const event = await sendMessage(to, content, isAgent !== false)
+      const sentMsg = { id: event.id, from: identity.pubkey, to, content, created_at: event.created_at, isAgent: true }
+      saveMessage(to, sentMsg)
+      broadcast({ type: 'message', data: sentMsg })
+      return json(res, 200, { ok: true, id: event.id, name: fileField.filename, size: fileField.data.length })
+    } catch (e) {
+      return json(res, 500, { error: e.message })
+    }
+  }
+
   // POST /api/send  { to, content, isAgent? }
   if (req.method === 'POST' && url.pathname === '/api/send') {
     try {
