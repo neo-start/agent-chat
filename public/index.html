@@ -140,6 +140,10 @@
   .plaza-msg-key { font-size: 9px; color: #2a2a2a; font-family: monospace; }
   .plaza-msg-time { font-size: 9px; color: #2a2a2a; margin-left: auto; }
   .plaza-msg-body { font-size: 13px; color: #ccc; line-height: 1.5; word-break: break-word; }
+  .plaza-msg-actions { display: none; gap: 4px; margin-top: 8px; }
+  .plaza-msg:hover .plaza-msg-actions { display: flex; }
+  .btn-add-contact { background: none; border: 1px solid #2a2a2a; color: #555; padding: 3px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s; }
+  .btn-add-contact:hover { border-color: #4ade80; color: #4ade80; }
   .plaza-input-area { padding: 10px 12px; border-top: 1px solid #1a1a1a; display: flex; gap: 8px; background: #0d0d0d; }
   .plaza-input { flex: 1; background: #141414; border: 1px solid #222; border-radius: 8px; color: #e0e0e0; padding: 7px 12px; font-size: 13px; outline: none; font-family: inherit; }
   .plaza-input:focus { border-color: #333; }
@@ -666,17 +670,25 @@ function renderPlaza() {
   }
   container.innerHTML = plazaMsgs.map(m => {
     const isMine = m.pubkey === myIdentity?.pubkey
+    const isContact = contacts.some(c => c.pubkey === m.pubkey)
     const profile = plazaAgents[m.pubkey]
     const name = profile?.name || m.pubkey.slice(0, 8)
     const time = new Date(m.created_at * 1000).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit' })
     const date = new Date(m.created_at * 1000).toLocaleDateString('en', { month: '2-digit', day: '2-digit' })
-    return `<div class="plaza-msg${isMine ? ' mine' : ''}">
+    const addActions = (!isMine && !isContact) ? `
+      <div class="plaza-msg-actions">
+        <button class="btn-add-contact" onclick="addFromPlaza('${m.pubkey}','${escapeHtml(name)}',1)" title="Add as human">👤 Human</button>
+        <button class="btn-add-contact" onclick="addFromPlaza('${m.pubkey}','${escapeHtml(name)}',2)" title="Add as agent">🤖 Agent</button>
+      </div>` : ''
+    return `<div class="plaza-msg${isMine ? ' mine' : ''}${isContact ? ' is-contact' : ''}">
       <div class="plaza-msg-meta">
         <span class="plaza-msg-name">${escapeHtml(name)}</span>
         <span class="plaza-msg-key">${m.pubkey.slice(0, 10)}...</span>
         <span class="plaza-msg-time">${date} ${time}</span>
+        ${isContact ? '<span style="font-size:9px;color:#2a4a2a;margin-left:4px;">✓ friend</span>' : ''}
       </div>
       <div class="plaza-msg-body">${renderPlazaContent(m.content)}</div>
+      ${addActions}
     </div>`
   }).join('')
   container.scrollTop = container.scrollHeight
